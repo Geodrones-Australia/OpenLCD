@@ -73,8 +73,8 @@ void loop()
 
   //The TWI interrupt will fire whenever it fires and adds incoming I2C characters to the buffer
   //As does the SPI interrupt
-  //Serial is the only one that needs special attention
-  serialEvent(); //Check the serial buffer for new data
+  // //Serial is the only one that needs special attention
+  // serialEvent(); //Check the serial buffer for new data
 
   while (buffer.tail != buffer.head) updateDisplay(); //If there is new data in the buffer, display it!
 

@@ -624,6 +624,7 @@ void twiReceive(int rxCount)
       buffer.data[buffer.head] = c;  // Store the data into the buffer's head
       buffer.head = i;  // update buffer head, since we stored new data
     }
+
   }
 }
 
