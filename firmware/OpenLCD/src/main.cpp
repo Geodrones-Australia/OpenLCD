@@ -32,15 +32,8 @@
 
 // Header libraries
 #include "OpenLCD.hpp"
-int now;
-int print_time;
-
-const int nRows = 4;      //number of rows on LCD
-const int nColumns = 20;  //number of columns
-
-const int length = nRows * nColumns;
-char text[length+1];
-char blanks[length+1];
+#define SETTING_COMMAND 0x7C
+#define CLEAR_COMMAND 0x2D					//45, -, the dash character: command to clear and home the display
 
 void setup()
 {
@@ -72,59 +65,21 @@ void setup()
 
   setupPower(); //Power down peripherals that we won't be using
 
-  // /// Setup test buffer
-  // for (int i = 0; i < sizeof(buffer); ++i) {
-  //   buffer.data[i] = 'a';
-  // }
-
-  // interrupts();  // Turn interrupts on, and let's go
-  // wdt_enable(WDTO_250MS); //Unleash the beast
-
-  // Benchmark LCD printing speed
-  	char c = 'A';
-	for (int i=0; i<length; i++) {
-		text[i] = c++;
-		blanks[i] = ' ';
-		if (c > 'Z') c = 'A';
-	}
-	text[length] = 0;
-	blanks[length] = 0;
-	unsigned long startTime=millis();
-	byte repetitions = 20;
-  int num_repeats = repetitions * 2;
-	while (repetitions--) {
-		SerLCD.setCursor(0,0);  // fill every screen pixel with text
-		SerLCD.print(text);
-		SerLCD.setCursor(0,0);  // then fill every pixel with blanks and repeat
-		SerLCD.print(blanks);
-	}
-	unsigned long endTime = millis();
-	SerLCD.clear();
-	SerLCD.setCursor(0,0);
-	SerLCD.print("Benchmark ");
-	SerLCD.print(nColumns, DEC);
-	SerLCD.write('x');
-	SerLCD.print(nRows, DEC);
-	SerLCD.setCursor(0,1);
-	SerLCD.print((endTime - startTime)/(num_repeats));
-	SerLCD.print(" millisecs.");
+  interrupts();  // Turn interrupts on, and let's go
+  wdt_enable(WDTO_250MS); //Unleash the beast
 }
 
 void loop()
 {
-  // wdt_reset(); //Pet the dog
+  wdt_reset(); //Pet the dog
 
-  // //The TWI interrupt will fire whenever it fires and adds incoming I2C characters to the buffer
-  // //As does the SPI interrupt
-  // // //Serial is the only one that needs special attention
-  // // serialEvent(); //Check the serial buffer for new data
-  // buffer.head = 79;
-  // now = millis();
-  // while (buffer.tail != buffer.head) updateDisplay(); //If there is new data in the buffer, display it!
-  // print_time = millis() - now;
-  // SerLCD.clear();
-  // SerLCD.print(print_time);
+  //The TWI interrupt will fire whenever it fires and adds incoming I2C characters to the buffer
+  //As does the SPI interrupt
+  // //Serial is the only one that needs special attention
+  // serialEvent(); //Check the serial buffer for new data
 
-  // //Once we've cleared the buffer, go to sleep
-  // sleep_mode(); //Stop everything and go to sleep. Wake up if serial character received
+  while (buffer.tail != buffer.head) updateDisplay(); //If there is new data in the buffer, display it!
+
+  //Once we've cleared the buffer, go to sleep
+  sleep_mode(); //Stop everything and go to sleep. Wake up if serial character received
 }

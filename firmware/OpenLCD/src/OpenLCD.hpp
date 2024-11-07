@@ -5,7 +5,8 @@
 #include "Arduino.h"
 #include <Wire.h> //For I2C functions
 #include <SPI.h> //For SPI functions
-#include <LiquidCrystalFast.h> //Faster LCD commands. From PJRC https://www.pjrc.com/teensy/td_libs_LiquidCrystal.html
+#include <hd44780.h>
+#include <hd44780ioClass/hd44780_pinIO.h> // Arduino pin i/o class header
 #include <EEPROM.h>  //Brightness, Baud rate, and I2C address are stored in EEPROM
 #include <avr/wdt.h> //Watchdog to prevent system freeze
 #include <avr/sleep.h> //Needed for sleep_mode
@@ -27,7 +28,8 @@
 #define LCD_CONTRAST 9 //PWM
 
 // LCD
-
+// LiquidCrystalFast SerLCD(LCD_RS, LCD_RW, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
+hd44780_pinIO SerLCD(LCD_RS, LCD_RW, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 
 #define SPI_CS 10 //As a slave device CS pin must always be 10
 #define SPI_MOSI 11
@@ -226,7 +228,7 @@ void setPwmFrequency(int pin, int divisor);
 //Firmware version. This is sent when requested. Helpful for tech support.
 
 //SoftPWM uses Timer 2
-LiquidCrystalFast SerLCD(LCD_RS, LCD_RW, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
+
 // updateDisplay(): This beast of a function is called by the main loop
 // If the data relates to a commandMode or settingMode will be set accordingly or a command/setting
 // will be executed from this function.
