@@ -91,6 +91,7 @@ void setup()
 	blanks[length] = 0;
 	unsigned long startTime=millis();
 	byte repetitions = 20;
+  int num_repeats = repetitions * 2;
 	while (repetitions--) {
 		SerLCD.setCursor(0,0);  // fill every screen pixel with text
 		SerLCD.print(text);
@@ -105,9 +106,8 @@ void setup()
 	SerLCD.write('x');
 	SerLCD.print(nRows, DEC);
 	SerLCD.setCursor(0,1);
-	SerLCD.print(endTime - startTime);
+	SerLCD.print((endTime - startTime)/(num_repeats));
 	SerLCD.print(" millisecs.");
-
 }
 
 void loop()
