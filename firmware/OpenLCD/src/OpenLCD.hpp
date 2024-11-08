@@ -7,6 +7,7 @@
 #include <SPI.h> //For SPI functions
 #include <hd44780.h>
 #include <hd44780ioClass/hd44780_pinIO.h> // Arduino pin i/o class header
+// #include <LiquidCrystalFast.h> //Faster LCD commands. From PJRC https://www.pjrc.com/teensy/td_libs_LiquidCrystal.html
 #include <EEPROM.h>  //Brightness, Baud rate, and I2C address are stored in EEPROM
 #include <avr/wdt.h> //Watchdog to prevent system freeze
 #include <avr/sleep.h> //Needed for sleep_mode
@@ -769,6 +770,7 @@ void setupLCD()
   pinMode(SIZE_JUMPER, INPUT); //Turn off pullup to save power
 
   SerLCD.begin(settingLCDwidth, settingLCDlines); //Setup the width and lines for this LCD
+  SerLCD.lineWrap(); // enable line wrap
 
   //Clear any characters in the frame buffer
   clearFrameBuffer();

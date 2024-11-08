@@ -32,8 +32,6 @@
 
 // Header libraries
 #include "OpenLCD.hpp"
-#define SETTING_COMMAND 0x7C
-#define CLEAR_COMMAND 0x2D					//45, -, the dash character: command to clear and home the display
 
 void setup()
 {
