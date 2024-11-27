@@ -47,25 +47,6 @@ void concatStrings(Result *res, First *f, T* ... next)
   concatenate(res, next...);
 }
 
-// Delay
-//Delays for a specified period that is pet safe
-void petSafeDelay(int delayAmount)
-{
-  long startTime = millis();
 
-  while ((unsigned long)(millis() - startTime) <= delayAmount)
-  {
-    wdt_reset(); //Pet the dog
-
-    //Max 100ms delay
-    for (byte x = 0 ; x < 100 ; x++)
-    {
-      delay(1);
-      if ( (unsigned long)(millis() - startTime) >= delayAmount) break;
-    }
-  }
-
-  wdt_reset(); //Pet the dog
-}
 
 #endif

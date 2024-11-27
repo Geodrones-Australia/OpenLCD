@@ -63,70 +63,171 @@ long last_mes = 0;
 long last_now = 0;
 int count = 0;
 char lcd_str[21];
+bool enc_change = false;
 
-
-// Timer settings      
-void button_tick(void);
-
-// Define functions
-void button_tick(void) {
-  // Check buttons
-  if (right_button.update_btn()) {screen_idx++; button_pressed = true;}
-  if (left_button.update_btn()) {screen_idx--; button_pressed = true;}
-  if (main_button.update_btn()) {screen_idx = 0; main_btn_pressed = true;} 
-  if (menu_button.update_btn()) {encoder_val = 0; menu_btn_pressed = true;}
-
-  // Last run
-  tim_freq = millis() - last_now;
-  last_now = millis();
-  count = 0;
-}
-
-// Setup I2C commands
-#define PAYLOAD_SIZE 3
-#define NUM_DISPLAY_SCREENS 11
-
-enum {
-    SEND_SCREEN = 169,
-    UPDATE_SETTINGS = 172,
-    UPDATE_SCREEN = 142,
-};
-
-typedef struct Command{
-  uint8_t cmd;
-  uint8_t payload[PAYLOAD_SIZE];
-}Command;
-
-void sendCommand(Command commandStruct, uint8_t slave_address,uint8_t responseSize){
-  Wire.beginTransmission(slave_address);
-  Wire.write((byte *)&commandStruct, sizeof(commandStruct));
-  Wire.endTransmission ();
-  if (Wire.requestFrom(slave_address, responseSize) == 0){
-    Serial.println("Error");
-  } else {
-    while (Wire.available()) // Do this while data is available in Wire buffer
-    {
-      byte c = Wire.read();  // Read data byte into c, from Wire data buffer
-      byte i = (buffer.head + 1) % BUFFER_SIZE;  // read buffer head position and increment
-
-      if (i != buffer.tail)  // As long as the buffer isn't full, we can store the data in buffer
-      {
-        buffer.data[buffer.head] = c;  // Store the data into the buffer's head
-        buffer.head = i;  // update buffer head, since we stored new data
-      }
-
-    }
-  }
-}
 
 // LCD Setup
 byte slave_i2c_adr = 0x72;
+hd44780_pinIO SerLCD(LCD_RS, LCD_RW, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 multifuel_lcd_config lcd_config {
   SerLCD,
   Wire,
   slave_i2c_adr
 };
-MULTIFUEL_LCD multifuel_lcd(lcd_config);
+MULTIFUEL_LCD lcd(lcd_config);
+
+// Define button functions
+void button_tick(void);
+void ui_update(void);
+
+static void button_tick(void) {
+  // Check buttons
+  if (right_button.update_btn() && !lcd.blinking_cursor) {screen_idx++; button_pressed = true;}
+  if (left_button.update_btn() && !lcd.blinking_cursor) {screen_idx--; button_pressed = true;}
+  if (main_button.update_btn() && !lcd.blinking_cursor) {main_btn_pressed = true;} 
+  if (menu_button.update_btn()) {menu_btn_pressed = true;}
+
+  // Last run
+  #ifdef LCD_DEBUG
+    tim_freq = millis() - last_now;
+    last_now = millis();
+    count = 0;
+  #endif
+}
+
+static void ui_update(void) {
+
+  int last_enc_ticks = 0;
+  // Update buttons
+  button_tick();
+  
+  // Update encoder
+  int tmp = encoder.read() / 4; // 1 detent == 4 positions
+  encoder_pos = tmp - encoder_pos;
+  last_enc_ticks = tmp; // save current encoder position
+
+  // encoder.update_encoder();
+  if (lcd.settings_mode) {
+    // Check which direction you turned
+    // encoder_pos = encoder.change;
+
+    // Check if encoder ticks has changed
+    if (encoder_pos != 0) enc_change = true;
+    // if (encoder.change != 0) encoder.has_changed = true;
+    else enc_change = false;
+
+    if (!lcd.blinking_cursor) 
+    {
+      if (enc_change) {
+        lcd.update_cursor_position(encoder_pos);
+      }
+    }  else if (lcd.active_screen == SCREEN::MAIN) 
+    {
+      if (enc_change) {
+        if (lcd.current_line == 2) {
+          // Update the displayed line
+          lcd.save_menu_name(encoder_pos);
+        }
+      }
+    } else if (lcd.active_screen == SCREEN::SUMMARY) 
+    {
+      if (enc_change) {
+        if (lcd.current_line == 1) {
+          lcd.en_backlight = !lcd.en_backlight;
+          if (lcd.en_backlight) {lcd.backlight_on();}
+          else {lcd.backlight_off();}
+
+          // Save data and print it to LCD
+          lcd.save_setting_data(false);
+        }
+        if (lcd.current_line == 2) {
+          int tmp = lcd.backlight_color;
+          tmp += encoder_pos;
+          if (tmp >= lcd.NUM_COLORS) {tmp = 0;}
+          if (tmp < 0) {tmp = lcd.NUM_COLORS-1;}
+          lcd.set_backlight_color(tmp);
+          lcd.save_setting_data(false);
+        }
+        if (lcd.current_line == 3) {
+          if (lcd.data_vector[lcd.active_screen].max_temperature != 0) {
+            lcd.data_vector[lcd.active_screen].max_temperature = 0;
+          } else {
+            lcd.data_vector[lcd.active_screen].max_temperature = 1;
+          }
+          lcd.save_setting_data(lcd.data_vector[lcd.active_screen].max_temperature);
+        }
+      }
+    } else if (lcd.active_screen != SCREEN::MAIN) 
+    {
+      if (enc_change) {
+        lcd.getSettings(lcd.active_screen);
+        uint8_t tmp = lcd.get_settings(lcd.current_line);
+        tmp += encoder_pos;
+        if (tmp > 58) {tmp = 0;}
+        if (tmp < 0) {tmp = 58;}
+        lcd.save_setting_data(lcd.current_line, tmp, lcd.active_screen);
+      } 
+    }
+  }
+
+  // Update screen based on the button press
+  if (button_pressed) {
+    // Save screen_idx as active screen
+    lcd.active_screen = lcd.getScreenID(screen_idx);
+    button_pressed = false;
+  }
+
+  if (main_btn_pressed) {
+    // Only go back to main screen if pressing 
+    if (lcd.active_screen == SCREEN::MAIN && lcd.settings_mode) {
+      if (lcd.current_line == 1) {
+        lcd.settings_mode = false;
+      }
+      if (lcd.current_line == 2) {
+        lcd.active_screen = lcd.displayed_screens[lcd.menu_num];
+        screen_idx = lcd.menu_num;
+      }
+    } else if (lcd.active_screen != SCREEN::MAIN) {
+      lcd.active_screen = SCREEN::MAIN;
+      screen_idx = 0;
+    }
+    main_btn_pressed = false;
+  }
+  if (menu_btn_pressed) {
+    if (!lcd.settings_mode) {
+      lcd.settings_mode = true;
+      lcd.menu_num = 0;
+      lcd.save_menu_name(lcd.menu_num);
+      // lcd.change_screen(SCREEN::MAIN);
+      screen_idx = SCREEN::MAIN;
+      lcd.active_screen = SCREEN::MAIN;
+
+      // Reset lcd screen when switching screens
+    } else {
+      if (lcd.blinking_cursor) {
+        lcd.update_cursor_position(0);
+      }
+      lcd.blinking_cursor = !lcd.blinking_cursor;
+    }
+    menu_btn_pressed = false;
+  }
+
+  // If the main button is held go to main screen and exit settings mode
+  if (main_button.button_held && lcd.settings_mode) {
+    // Dsable settings mode and blinking cursor
+    lcd.settings_mode = false;
+    lcd.blinking_cursor = false;
+
+    // Change the active screen back to main
+    lcd.active_screen = SCREEN::MAIN;
+    screen_idx = 0;
+  }
+
+  // Update ui data
+  lcd.ui_data.lcd_mode = lcd.settings_mode;
+  lcd.ui_data.backlight_on = lcd.en_backlight;
+  lcd.ui_data.backlight_color = lcd.backlight_color;
+}
 
 // Main Code
 void setup()
@@ -152,8 +253,8 @@ void setup()
   main_button.init(MAIN_BUTTON);
   menu_button.init(MENU_BUTTON);
 
-  // Print Test to LCD
-  multifuel_lcd.init(lcd_config);
+  // Init LCD
+  lcd.init(lcd_config);
 
   interrupts();  // Turn interrupts on, and let's go
   wdt_enable(WDTO_250MS); //Unleash the beast
@@ -163,19 +264,11 @@ void loop()
 {
   wdt_reset(); //Pet the dog
 
-  // Update buttons
-  button_tick();
-  
-  // Update encoder
-  int tmp = encoder.read() / 4; // 1 detent == 4 positions
-  encoder_val += (tmp - encoder_pos);
-  encoder_pos = tmp; // save current encoder position
+  // Poll Inputs
+  ui_update();
 
-  // Request Data from the main MCU
-  if ((button_pressed || menu_btn_pressed) || main_btn_pressed) {
-    // Make sure creen_idx is within limits
-    if (screen_idx > NUM_DISPLAY_SCREENS) screen_idx -= NUM_DISPLAY_SCREENS;
-    if (screen_idx < 0) screen_idx += NUM_DISPLAY_SCREENS;
-  }
+  // Request Data from main MCU
+
+
   
 }
