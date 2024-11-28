@@ -1,5 +1,18 @@
 #include "lcd.h"
 
+// Default character arrays
+const char * const start_str   PROGMEM = "Multifuel Startup   Setting Up Unit     Getting Config      Elapse Time:   00.0s";
+const char * const on_str      PROGMEM = " ON"; 
+const char * const off_str     PROGMEM = "OFF";   
+const char * const cursor_on   PROGMEM = ">";
+const char * const cursor_off  PROGMEM = " ";
+const char * const I2C_ERROR   PROGMEM = "I2C COMMS FAILED    ";
+const char * const DEBUG_LINE  PROGMEM = "    DEBUG SCREEN    ";
+
+// LCD Properties
+const int LCD_LINES = 4;
+const int LCD_COLLUMNS = 20;
+const int LCD_SIZE = 80;
 
 
 MULTIFUEL_LCD::MULTIFUEL_LCD() {
@@ -17,7 +30,7 @@ void MULTIFUEL_LCD::init(multifuel_lcd_config config) {
     // Get data from config
     _lcd = &config._lcd;
     _i2c = &config._i2c;
-    i2c_address = config.i2c_address;
+    i2c_address = config.i2c_adr;
 
     // reset active screen
     active_screen = SCREEN::MAIN;
@@ -25,24 +38,13 @@ void MULTIFUEL_LCD::init(multifuel_lcd_config config) {
     // Compute line width
     lcd_str_width = LCD_COLLUMNS + 1;
 
+    // Initialise lcd buffer with zeros
+    for (int i = 0; i < LCD_SIZE; ++i) {
+      lcd_buff[i] = start_str[i];
+    }
+
     // Add data to status vector
     lcd_present = true;
-
-    // Initialise data_vector
-    data_vector[SCREEN::LEAD_DETAILS]        = settings_data(SCREEN::LEAD_DETAILS);
-    data_vector[SCREEN::LIPO_DETAILS]        = settings_data(SCREEN::LIPO_DETAILS);
-    data_vector[SCREEN::CORELLA_IN_DETAILS]  = settings_data(SCREEN::CORELLA_IN_DETAILS); 
-    data_vector[SCREEN::CORELLA_EXT_DETAILS] = settings_data(SCREEN::CORELLA_EXT_DETAILS);
-    data_vector[SCREEN::SOLAR_DETAILS]       = settings_data(SCREEN::SOLAR_DETAILS);
-    data_vector[SCREEN::GENERATOR_DETAILS]   = settings_data(SCREEN::GENERATOR_DETAILS);
-    data_vector[SCREEN::ACDC_DETAILS]        = settings_data(SCREEN::ACDC_DETAILS); 
-    data_vector[SCREEN::DCDC_DETAILS]        = settings_data(SCREEN::DCDC_DETAILS);
-    data_vector[SCREEN::CHARGER_DETAILS]     = settings_data(SCREEN::CHARGER_DETAILS);
-    data_vector[SCREEN::VARDC_DETAILS]       = settings_data(SCREEN::VARDC_DETAILS);
-    data_vector[SCREEN::INVERTER_DETAILS]    = settings_data(SCREEN::INVERTER_DETAILS);
-    data_vector[SCREEN::LEAD_STEPUP_DETAILS] = settings_data(SCREEN::LEAD_STEPUP_DETAILS);
-    data_vector[SCREEN::MAIN]                = settings_data(SCREEN::MAIN); 
-    data_vector[SCREEN::SUMMARY]             = settings_data(SCREEN::SUMMARY);
 
     // Setup Menu names
     menu_names[SCREEN::LEAD_DETAILS]        = "Lead Settings     ";
@@ -66,15 +68,6 @@ void MULTIFUEL_LCD::init(multifuel_lcd_config config) {
     for (int i = 0; i < (NUM_DISPLAY_SCREENS-2); i++) {
         displayed_screens[i+2] = static_cast<SCREEN>(i);
     }
-    
-    // Update Active screen
-    active_screen = SCREEN::MAIN; // First value of the screen array is the main screen
-
-    // Grab initial setting data
-    for (int i = 0; i < NUM_DISPLAY_SCREENS; ++i) {
-        // Get setting for source
-        getSettings(displayed_screens[i]);
-    }
 
     // Initialise LCD
     startup();
@@ -82,67 +75,170 @@ void MULTIFUEL_LCD::init(multifuel_lcd_config config) {
 
 void MULTIFUEL_LCD::reset_lcd() {
     // Set active screen back to main screen
-    active_screen = SCREEN::MAIN;
-
-    // Reset LCD board
-    #ifdef UI_BOARD_V1
-        digitalWrite(reset_pin, HIGH);
-        _lcd.begin(*_i2c, DOGM204);
-    #elif defined(UI_BOARD_V2)
-        clear();
-        startup();
-    #endif
+    clear();
+    startup();
 }
 
 void MULTIFUEL_LCD::sendCommand(Command cmd) {
+  if (mcu_present) {
     _i2c->beginTransmission(i2c_address);
-    _i2c->write((uint8_t *)&cmd, COMMAND_LEN);
-    _i2c->endTransmission ();
+    for (int i = 0; i < COMMAND_LEN; i++) {
+      _i2c->write(cmd.buffer[i]);
+    }
+    _i2c->endTransmission();
+  }
+
+  last_cmd.cmd = cmd.cmd;
+  last_cmd.buffer[0] = cmd.buffer[0];
+  last_cmd.buffer[1] = cmd.buffer[1];
+  last_cmd.buffer[2] = cmd.buffer[2];
+  last_cmd.buffer[3] = cmd.buffer[3];
+  last_cmd.buffer[4] = cmd.buffer[4];
+
+  // Give STM32 time to do other things
+  delay(5);
 }
 
-void MULTIFUEL_LCD::sendCommand(Command cmd, uint8_t *buffer, size_t size) {
-    // Send the command
-    sendCommand(cmd);
-
-    // Get Response
-    _i2c->requestFrom(i2c_address, size);
-    
+bool MULTIFUEL_LCD::twiReceive(size_t response_size, bool stop_bit)
+{
+  if (mcu_present) {
+    i2c_resp_size = _i2c->requestFrom(i2c_address, uint8_t(response_size), uint8_t(stop_bit));
     size_t idx = 0;
     while (_i2c->available()) {
-        if (idx < size) {
-            buffer[idx] = _i2c->read();
-        }
+        buffer[idx] = _i2c->read();
         ++idx;
+        if (idx >= response_size) break;
     };
-}
+    return true;
+  } else {
+    return false;
+  }
+};
 
+void MULTIFUEL_LCD::clearBuffer(int quantity) {
+  // Clear array to zeros
+  if (quantity == 0) {
+    for (int i = 0; i < BUFFER_LENGTH; ++i) {
+      buffer[i] = 0;
+    }
+  } else {
+    for (int i = 0; i < quantity; ++i) {
+      buffer[i] = 0;
+    }
+  }
+}
+    
 void MULTIFUEL_LCD::getConfig() {
     // Create command structure
     Command cmd(COMMANDS::GET_CONFIG, active_screen, 0, 0, 0);
 
     // Send command
-    sendCommand(cmd, (uint8_t *)&ui_data, sizeof((uint8_t *)&ui_data));
+    sendCommand(cmd);
+
+    // Twi Receive
+    if (twiReceive(4)) {
+      // Parse buffer
+      ui_data.protection_mode = buffer[0];
+      ui_data.lcd_mode = buffer[1];
+      ui_data.backlight_on = buffer[2];
+      ui_data.backlight_color = buffer[3];
+
+      // Save buffer
+      last_cmd.cmd = cmd.cmd;
+      last_cmd.buffer[1] = buffer[0];
+      last_cmd.buffer[2] = buffer[1];
+      last_cmd.buffer[3] = buffer[2];
+      last_cmd.buffer[4] = buffer[3];
+
+      // Clear buffer
+      clearBuffer(4);
+
+      // Configure lcd
+      if (ui_data.backlight_on != 0) {
+        en_backlight = true;
+      } else {
+        en_backlight = false;
+      }
+      if (ui_data.backlight_color >= NUM_COLORS) {
+        backlight_color = 0;
+      } else {
+        backlight_color = ui_data.backlight_color;
+      }
+    
+      // Chnage the configuration of the lcd
+      configure();
+    }
 }
 
 void MULTIFUEL_LCD::getSettings(uint8_t num) {
     // Create command structure
-    Command cmd(COMMANDS::GET_SETTINGS, active_screen, 0, 0, 0);
+    Command cmd(COMMANDS::GET_SETTINGS, num, 0, 0, 0);
 
     // Send command
-    sendCommand(cmd, (uint8_t *)&data_vector[num], sizeof((uint8_t *)&data_vector[num]));
+    sendCommand(cmd);
+
+    // Twi Receive
+    if (twiReceive(4)) {
+      // Parse buffer
+      source_data.screen_number = buffer[0];
+      source_data.min_voltage = buffer[1];
+      source_data.max_voltage = buffer[2];
+      source_data.max_current = buffer[3];
+
+      // Update last cmd
+      last_cmd.cmd = cmd.cmd;
+      last_cmd.buffer[1] = buffer[0];
+      last_cmd.buffer[2] = buffer[1];
+      last_cmd.buffer[3] = buffer[2];
+      last_cmd.buffer[4] = buffer[3];
+
+      // Clear buffer
+      clearBuffer(4);
+    }
 }
 
 void MULTIFUEL_LCD::getScreen(uint8_t num) {
-    // Create command structure
-    Command cmd(COMMANDS::GET_SCREEN, active_screen, 0, 0, 0);
+    // Twi Receive
+    int suc = 0;
+    int start_idx = 0;
+    int end_idx = LCD_COLLUMNS;
+    for (int line = 0; line < LCD_LINES; ++line) {
+      // Create command structure
+      Command cmd(COMMANDS::GET_SCREEN, num, line, 0, 0);
 
-    // Send command
-    sendCommand(cmd, (uint8_t *)&lcd_str, sizeof(lcd_str));
+      // Send command
+      sendCommand(cmd);
+      
+      if (twiReceive(LCD_COLLUMNS)) {
+        // Parse buffer
+        start_idx = line * LCD_COLLUMNS;
+        end_idx = (line + 1) * LCD_COLLUMNS;
+        for (int i = start_idx; i < end_idx; ++i) {
+          if (buffer[i-start_idx] != 0) {
+            lcd_buff[i] = buffer[i-start_idx];
+          }
+        }
+
+        // Update last cmd
+        last_cmd.cmd = cmd.cmd;
+        last_cmd.buffer[1] = buffer[0];
+        last_cmd.buffer[2] = buffer[1];
+        last_cmd.buffer[3] = buffer[2];
+        last_cmd.buffer[4] = buffer[3];
+
+        // Clear buffer
+        clearBuffer(LCD_COLLUMNS);
+        ++suc;
+      }
+      // Wait a bit before requesting next line
+      delay(1);
+    }
+    i2c_resp_size = suc * LCD_COLLUMNS;
 }
 
 void MULTIFUEL_LCD::sendInputData(input_data data) {
     // Create command structure
-    Command cmd(COMMANDS::SEND_INPUT_DATA, data.screen_number, data.lcd_mode, data.backlight_on, data.backlight_color);
+    Command cmd(COMMANDS::SEND_INPUT_DATA, data.protection_mode, data.lcd_mode, data.backlight_on, data.backlight_color);
 
     // Send command
     sendCommand(cmd);
@@ -150,7 +246,7 @@ void MULTIFUEL_LCD::sendInputData(input_data data) {
 
 void MULTIFUEL_LCD::sendSettings(settings_data data) {
     // Create command structure
-    Command cmd(COMMANDS::SEND_INPUT_DATA, data.screen_number, data.max_voltage, data.max_current, data.max_temperature);
+    Command cmd(COMMANDS::SEND_INPUT_DATA, data.screen_number, data.min_voltage, data.max_voltage, data.max_current);
 
     // Send command
     sendCommand(cmd);
@@ -170,11 +266,11 @@ uint8_t MULTIFUEL_LCD::get_settings(int line) {
 
   // get setting from data vector
   if (current_line == 1) {
-    src_setting = data_vector[active_screen].max_voltage;
+    src_setting = source_data.min_voltage;
   } else if (current_line == 2 ) {
-    src_setting = data_vector[active_screen].max_current;
+    src_setting = source_data.max_voltage;
   } else if (current_line == 3 ) {
-    src_setting = data_vector[active_screen].max_temperature;
+    src_setting = source_data.max_current;
   }
 
   // return setting
@@ -233,17 +329,20 @@ void MULTIFUEL_LCD::save_setting_data(int idx, uint8_t new_setting, SCREEN lcd_s
     double disp_setting;
     disp_setting = PosZero(new_setting, lcd_precision);
 
-    // Save screen data
+    // Update setting data
     if (current_line == 1) {
-      data_vector[lcd_screen].max_voltage = new_setting;
+      source_data.min_voltage = new_setting;
     } else if (current_line == 2 ) {
-      data_vector[lcd_screen].max_current = new_setting;
+      source_data.max_voltage = new_setting;
     } else if (current_line == 3 ) {
-      data_vector[lcd_screen].max_temperature = new_setting;
+      source_data.max_current = new_setting;
     }
+
+    // Save data
+    sendSettings(source_data);
     
     // Print
-    snprintf(update_str, sizeof(update_str), "%04.1f", disp_setting);
+    dtostrf(disp_setting, 4, 1, update_str);
     if (autoprint) write_array(update_str, current_line, 15);
 }
 
@@ -272,7 +371,7 @@ void MULTIFUEL_LCD::save_setting_data(bool val, bool autoprint) {
             // Save screen data
             write_array(off_str, current_line,17);
         }
-        data_vector[SCREEN::MAIN].max_temperature = val; // store protection value in max tempertature setting
+        ui_data.protection_mode = val;
     }
 }
 
@@ -282,15 +381,21 @@ void MULTIFUEL_LCD::clear() {
 }
 
 void MULTIFUEL_LCD::write_array(const char *str, uint8_t row, uint8_t col) {
-	// size_t size = strlen(str);
-    // // _lcd.write(str);
-
-    // _i2c->beginTransmission(i2c_address); // transmit to device
-	// buffer_size = _i2c->write((const uint8_t *)str, int(size));          //while
-    // _i2c->endTransmission(); //Stop transmission
-    // Locate
     locate(row, col);
     _lcd->write(str);
+}
+
+void MULTIFUEL_LCD::print_error(const char *str, uint8_t row, uint8_t col) {
+    locate(row, col);
+    _lcd->write(str);
+}
+
+void MULTIFUEL_LCD::write_array(uint8_t *arr, uint8_t row, uint8_t col) {
+    locate(row, col);
+
+    for (int i = 0; i < LCD_SIZE; ++i) {
+      _lcd->write(arr[i]);
+    }
 }
 
 void MULTIFUEL_LCD::locate(uint8_t row, uint8_t column) {
@@ -299,12 +404,38 @@ void MULTIFUEL_LCD::locate(uint8_t row, uint8_t column) {
 
 void MULTIFUEL_LCD::full_screen_refresh(bool FORCE)
 {
-  if (FORCE) {
-    // Get current screent
-    getScreen(active_screen);
+  // Get current screen
+  getScreen(active_screen);
+  // getSettings(SCREEN::DCDC_DETAILS);
+  // getConfig();
 
+  if (FORCE) {
     // Print the screen
-    _lcd->write(lcd_str);
+    #ifdef LCD_DEBUG
+    write_array(DEBUG_LINE,0,0);
+    
+    // Write if MCU is found
+    if (mcu_present) {
+      write_array("OK", 0, 18);
+    } else {
+      write_array("ERR", 0, 17);
+    }
+
+    // Response length
+    snprintf(line_str, lcd_str_width, "Response Length: %3d", i2c_resp_size);
+    write_array(line_str, 1 ,0);
+
+    // Check last command
+    snprintf(line_str, lcd_str_width, "%3d,%3d,%3d,%3d,%3d", last_cmd.buffer[0], last_cmd.buffer[1],last_cmd.buffer[2], last_cmd.buffer[3], last_cmd.buffer[4]);
+    write_array(line_str, 2 ,0);
+
+    // How many times the screen has refreshed since start
+    snprintf(line_str, lcd_str_width, "Refresh Count: %5d", debug_count);
+    debug_count++;
+    write_array(line_str, 3, 0);
+    #else
+    write_array(lcd_buff);
+    #endif
   }
 
   // Update cursor
@@ -313,11 +444,24 @@ void MULTIFUEL_LCD::full_screen_refresh(bool FORCE)
 
 void MULTIFUEL_LCD::refresh(bool FORCE)
 {
-    if ((millis() - last_update) > LCD_UPDATE_RATE)
-    {
-        full_screen_refresh(FORCE);  
-        last_update = millis();
-    }
+  // Measure refresh rate
+  mes_rate = millis() - last_scr_update;
+  if (mes_rate > LCD_UPDATE_RATE)
+  {
+      // Scan for the mcu
+      lcd_scan();
+
+      if (mcu_present && (mcu_present != prev_mode)) {
+        // reset was detected
+        delay(100);
+        getConfig();
+        prev_mode = mcu_present;
+      }
+
+      // Refresh screen
+      full_screen_refresh(FORCE);  
+      last_scr_update = millis();
+  }
 }
 
 void MULTIFUEL_LCD::blink_cursor() {
@@ -349,34 +493,20 @@ void MULTIFUEL_LCD::backlight_off() {
    set_backlight_color(0,0,0);
 }
 
-void MULTIFUEL_LCD::set_backlight_color(int backlight_idx) {
-    backlight_color = backlight_idx;
-    if (en_backlight) {set_backlight_color(lcd_colors[backlight_color]);}
-}
-
 void MULTIFUEL_LCD::set_backlight_color(byte r, byte g, byte b) {
-    if (en_backlight) {
-        //update red
-        EEPROM.update(LOCATION_RED_BRIGHTNESS, r); //Record new setting
-        analogWrite(BL_RW, 255 - r); //Controlled by PNP so reverse the brightness value
+    //update red
+    EEPROM.update(LOCATION_RED_BRIGHTNESS, r); //Record new setting
+    analogWrite(BL_RW, 255 - r); //Controlled by PNP so reverse the brightness value
 
-        //update green
-        EEPROM.update(LOCATION_GREEN_BRIGHTNESS, g); //Record new setting
-        analogWrite(BL_G, 255 - g); //Controlled by PNP so reverse the brightness value
+    //update green
+    EEPROM.update(LOCATION_GREEN_BRIGHTNESS, g); //Record new setting
+    analogWrite(BL_G, 255 - g); //Controlled by PNP so reverse the brightness value
 
-        //update blue (SoftPWM)
-        EEPROM.update(LOCATION_BLUE_BRIGHTNESS, b); //Record new setting
-        //analogWrite(BL_B, 255 - brightness); //Controlled by PNP so reverse the brightness value
-        SoftPWMSet(BL_B, b); //Controlled by software PWM. Reversed by SoftPWM
-    }
-}
-
-void MULTIFUEL_LCD::set_backlight_color(unsigned long color) {
-    // convert from hex triplet to byte values
-    byte r = (color >> 16) & 0x0000FF;
-    byte g = (color >> 8) & 0x0000FF;
-    byte b = color & 0x0000FF;
-    if (en_backlight) {set_backlight_color(r,g,b);}
+    //update blue (SoftPWM)
+    EEPROM.update(LOCATION_BLUE_BRIGHTNESS, b); //Record new setting
+    //analogWrite(BL_B, 255 - brightness); //Controlled by PNP so reverse the brightness value
+    SoftPWMSet(BL_B, b); //Controlled by software PWM. Reversed by SoftPWM
+    delay(10);
 }
 
 //**************PRIVATE FUNCTIONS**************/
@@ -389,6 +519,81 @@ void MULTIFUEL_LCD::startup() {
     setupBacklight(); //Turn on any backlights
 
     setupPower(); //Power down peripherals that we won't be using
+
+    // Setup I2C
+    _i2c->begin();
+    _i2c->setClock(400000);
+    _i2c->setWireTimeout(5000);
+
+    // Print startup message
+    clear();
+    petSafeDelay(100);
+    write_array(lcd_buff, 0 ,0);
+
+    // Wait a bit
+    delay(1000);
+
+    // Get Config, lcd mode should be false, wait until we get false before proceeding
+    last_scr_update = millis();
+    double count = 0;
+    unsigned long loop_delay = 100;
+    char num_str[7];
+
+    // Set lcd mode to settings
+    ui_data.lcd_mode = 1;
+
+    while (!mcu_present) {
+      petSafeDelay(loop_delay);
+      count += loop_delay / 1000.0;
+      dtostrf(count, 6, 1, num_str);
+      write_array(num_str, 3 ,13);
+
+      if (lcd_scan()) {
+        delay(100); // wait a bit for the mcu to be ready
+        getConfig();
+        prev_mode = mcu_present;
+      }
+    }
+    last_scr_update = millis();
+    // write_array("Acquired Config     ", 3, 0);
+    
+    // Set Active screen to main
+    active_screen = SCREEN::MAIN; 
+
+    // Get current screen
+    petSafeDelay(100);
+
+    // Display current screem
+    full_screen_refresh(true);
+
+    // // Grab initial setting data
+    // for (int i = 0; i < NUM_DISPLAY_SCREENS; ++i) {
+    //     // Get setting for source
+    //     getSettings(displayed_screens[i]);
+    // }
+}
+
+bool MULTIFUEL_LCD::lcd_scan() {
+    // Scan I2C bus
+    byte error;
+
+    // The i2c_scanner uses the return value of
+    // the Write.endTransmisstion to see if
+    // a device did acknowledge to the address.
+    _i2c->beginTransmission(i2c_address);
+    error = _i2c->endTransmission();
+
+    if (error == 0)
+    {
+      mcu_present = true;
+      return true;
+    }
+    else
+    {
+      mcu_present = false;
+      prev_mode = mcu_present;
+      return false;
+    }    
 }
 
 void MULTIFUEL_LCD::setupLCD()
@@ -514,9 +719,9 @@ void setPwmFrequency(int pin, int divisor)
       default: return;
     }
     if (pin == 5 || pin == 6) {
-      TCCR0B = TCCR0B & 0b11111000 | mode;
+      TCCR0B = TCCR0B & (0b11111000 | mode);
     } else {
-      TCCR1B = TCCR1B & 0b11111000 | mode;
+      TCCR1B = TCCR1B & (0b11111000 | mode);
     }
   } else if (pin == 3 || pin == 11) {
     switch (divisor) {
@@ -529,6 +734,6 @@ void setPwmFrequency(int pin, int divisor)
       case 1024: mode = 0x7; break;
       default: return;
     }
-    TCCR2B = TCCR2B & 0b11111000 | mode;
+    TCCR2B = TCCR2B & (0b11111000 | mode);
   }
 }

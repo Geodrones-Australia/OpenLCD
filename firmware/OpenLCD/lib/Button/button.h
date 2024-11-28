@@ -14,13 +14,13 @@ class Button {
         bool button_held;
         bool button_pressed;
     private:
-        unsigned long DEBOUNCE_TIME = 50; // 100 ms
-        unsigned long HOLD_TIME = 1000; // 1000ms (1s)
+        uint32_t DEBOUNCE_TIME = 50; // 100 ms
+        uint32_t HOLD_TIME = 1000; // 1000ms (1s)
         bool last_val = false;
         bool has_changed = false;
         unsigned long last_time = 0;  // the last time the output pin was toggled
-        uint32_t press_timer = 0;
-        uint32_t hold_timer = 0;
+        unsigned long press_timer = 0;
+        unsigned long hold_timer = 0;
         
 };
 

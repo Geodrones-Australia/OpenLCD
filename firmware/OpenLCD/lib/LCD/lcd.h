@@ -18,13 +18,13 @@
  * 
  * @param _lcd         pointer to lcd class
  * @param _i2c         pointer to the i2c bus the input is on
- * @param i2c_address  i2c address for the MCU
+ * @param i2c_adr      i2c address for the MCU
  * 
  */
 struct multifuel_lcd_config {
-    hd44780_pinIO _lcd;
+    hd44780_pinIO &_lcd;
     TwoWire &_i2c;
-    uint8_t i2c_address;
+    uint8_t i2c_adr;
 };
 
 //Hardware pin definitions
@@ -107,7 +107,7 @@ const byte DEFAULT_DISPLAY_SYSTEM_MESSAGES = true; //Enable messages
 /*
 Screens: enumerator for screens for each source and LCD specific screens (Order indicates the index of the source data)
 */
-#define NUM_SCREENS 15 // NUmber of screens saved (total)
+#define NUM_SCREENS 14 // NUmber of screens saved (total)
 #define NUM_DISPLAY_SCREENS 11 // Number of screens displayed
 typedef enum{
     // Sources
@@ -138,52 +138,55 @@ typedef enum {
     SEND_SETTINGS   = 172, // send setting data for source  Tx: screen_idx, max_voltage, max_current, max_temprature Rx: N/A
 } COMMANDS;
 
-#define COMMAND_LEN 4
+#define COMMAND_LEN 5
+
 /**
  * Command data: Structure for the communicating with STM32
  * 
  * @author Albert (06=8/2024)
  * 
- * @param screen_number     screen number of source
- * @param max_voltage       max voltage for source
- * @param max_current       max current for source
- * @param max_temperature   max temperature of the sensor
+ * @param cmd     command
+ * @param payload min voltage for source
  * 
  */
 typedef struct Command{
   uint8_t cmd;
-  uint8_t payload[4] = {0,0,0,0};
+  uint8_t buffer[5] = {0,0,0,0};
 
   Command() {};
   Command(COMMANDS command, uint8_t screen_num, uint8_t d1, uint8_t d2, uint8_t d3) :
   cmd(command) {
-    payload[0] = screen_num;
-    payload[1] = d1;
-    payload[2] = d2;
-    payload[3] = d3;
+    buffer[0] = command;
+    buffer[1] = screen_num;
+    buffer[2] = d1;
+    buffer[3] = d2;
+    buffer[4] = d3;
   };
 }Command;
 
+// Struct for circular data buffer
+// Data received over UART, SPI and I2C are all sent into a single buffer
+
 /**
- * Settings data: Structure for the settings of each source
+ * settings_data: Structure for the communicating with STM32
  * 
  * @author Albert (06=8/2024)
  * 
  * @param screen_number     screen number of source
+ * @param min_voltage       min voltage for source
  * @param max_voltage       max voltage for source
  * @param max_current       max current for source
- * @param max_temperature   max temperature of the sensor
  * 
  */
 struct settings_data {
     uint8_t screen_number;
+    uint8_t min_voltage;
     uint8_t max_voltage;
     uint8_t max_current;
-    uint8_t max_temperature;
-    settings_data() : screen_number(0), max_voltage(0), max_current(0), max_temperature(0) {};
-    settings_data(SCREEN num) : screen_number(num), max_voltage(0), max_current(0), max_temperature(0) {};
-    settings_data(uint8_t num, uint8_t v, uint8_t a, uint8_t t) :
-    screen_number(num), max_voltage(v), max_current(a), max_temperature(t) {};
+    settings_data() : screen_number(0), min_voltage(0), max_voltage(0), max_current(0) {};
+    settings_data(SCREEN num) : screen_number(num), min_voltage(0), max_voltage(0), max_current(0) {};
+    settings_data(uint8_t num, uint8_t min_v, uint8_t max_v, uint8_t a) :
+    screen_number(num), min_voltage(min_v), max_voltage(max_v), max_current(a) {};
 };
 
 /**
@@ -191,20 +194,20 @@ struct settings_data {
  * 
  * @author Albert (06=8/2024)
  * 
- * @param screen_number     current screen number
+ * @param protection_mode   soft protection (0 - off/ 1 - en)
  * @param lcd_mode          settings/data mode for lcd
  * @param backlight_on      backlight on/off
  * @param backlight_color   backlight color
  * 
  */
 struct input_data {
-    uint8_t screen_number;
+    uint8_t protection_mode;
     uint8_t lcd_mode;
     uint8_t backlight_on;
     uint8_t backlight_color;
-    input_data(): screen_number(0), lcd_mode(0), backlight_on(0), backlight_color(0) {};
-    input_data(uint8_t num, uint8_t enc_change, uint8_t mode, uint8_t line) :
-    screen_number(num), lcd_mode(enc_change), backlight_on(mode), backlight_color(line){};
+    input_data(): protection_mode(0), lcd_mode(0), backlight_on(0), backlight_color(0) {};
+    input_data(uint8_t num, uint8_t mode, uint8_t en_light, uint8_t color_light) :
+    protection_mode(num), lcd_mode(mode), backlight_on(en_light), backlight_color(color_light){};
 };
 
 // Helper functions
@@ -219,19 +222,26 @@ class MULTIFUEL_LCD {
 
         // LCD properties
         uint8_t i2c_address  = 0x72;
+        uint8_t i2c_resp_size = 0;
+        int debug_count = 0;
+        int mes_rate = 0; // measured lcd period (ms)
         uint8_t LCD_DELAY    = 50;          // delay to wait for LCD to update (ms)
         SCREEN active_screen = SCREEN::MAIN;
         bool lcd_present = false;
-        bool lcd_mode = 0b00000100;  // data mode, cursor off, backlight on, white color
+        bool mcu_present = false;
+        bool prev_mode = false; 
         bool settings_mode = false;
         int lcd_precision = 1;  
         int current_line = 1;
         uint8_t screen_array[NUM_SCREENS+1]; // array of all the screens first entry is how many screens, the rest is the screen numbers in order
+        uint8_t buffer[BUFFER_LENGTH]; // i2c buffer for data
+        uint8_t lcd_buff[80];
+        Command last_cmd;
 
         // Update rate
-        unsigned long  LCD_UPDATE_RATE = 25;   // 25ms/40Hz
-        unsigned long last_update = 0;
-        unsigned long CURSOR_BLINK_RATE = 100; //ms
+        uint32_t LCD_UPDATE_RATE = 25;   // 25ms/40Hz
+        unsigned long last_scr_update = 0;
+        uint32_t CURSOR_BLINK_RATE = 100; //ms
         unsigned long last_cursor_update = 0;
         bool show_cursor = false;
         bool blinking_cursor = false;
@@ -244,7 +254,30 @@ class MULTIFUEL_LCD {
         bool en_backlight = true;
         int backlight_color = 0;
         int NUM_COLORS = 8;
-        unsigned long lcd_colors[8] {
+
+        /*************************************Settings/Input Data********************************/
+        settings_data source_data = {
+            SCREEN::MAIN,
+            0,
+            0,
+            0,
+        };
+        input_data ui_data = {
+            0,
+            1,
+            0,
+            0,
+        };
+
+        /********************************Character formatting Arrays*****************************/
+        int menu_num = 1;
+        char line_str[21] = " ";
+        const char* menu_names[NUM_SCREENS];
+        SCREEN displayed_screens[NUM_DISPLAY_SCREENS];
+        size_t lcd_str_width;
+
+        // Save lcd_colors
+        const unsigned long lcd_colors[8] = {
             0xFFFFFF, // White
             0xFF0000, // Red
             0x0000FF, // Blue
@@ -254,7 +287,7 @@ class MULTIFUEL_LCD {
             0x7F00FF, // Purple
             0xFF8C00, // Orange
         };
-        const char* lcd_color_str[8] {
+        const char* const lcd_color_str[8] = {
             " White", // White
             "   Red", // Red
             "  Blue", // Blue
@@ -264,29 +297,6 @@ class MULTIFUEL_LCD {
             "Purple", // Purple
             "Orange", // Orange
         };
-        
-        // Default character arrays
-        uint8_t i2c_buffer[BUFFER_LENGTH];
-        char lcd_str[81]; 
-        char on_str[4]      = " ON"; 
-        char off_str[4]     = "OFF";   
-        char cursor_on[2]   = ">";
-        char cursor_off[2]  = " ";
-        /*************************************Settings/Input Data********************************/
-        settings_data data_vector[NUM_SCREENS];
-        input_data ui_data = {
-            SCREEN::MAIN,
-            0,
-            0,
-            0,
-        };
-
-        /********************************Character formatting Arrays*****************************/
-        int menu_num = 1;
-        const char* menu_names[NUM_SCREENS];
-        SCREEN displayed_screens[NUM_DISPLAY_SCREENS];
-
-        
 
         /*************************************Methods********************************************/
         // Main Menu/Input screen formatting arrays
@@ -302,11 +312,13 @@ class MULTIFUEL_LCD {
         void setupPower();
         void startup();
         void configure();
+        bool lcd_scan();
         void reset_lcd();
 
         // Low level Command functions
         void sendCommand(Command cmd); // Send command without response
-        void sendCommand(Command cmd, uint8_t *buffer, size_t size); // Send command with response
+        bool twiReceive(size_t response_size, bool stop_bit = true); // Send command with response
+        void clearBuffer(int quantity = 0);
 
         // High level Command functions
         void getConfig();
@@ -322,8 +334,8 @@ class MULTIFUEL_LCD {
         // Update setting menu screens
         uint8_t get_settings(int line);
         void save_menu_name(int change);
-        void save_setting_data(int idx, uint8_t new_setting, SCREEN lcd_screen, bool autoprint = false);
-        void save_setting_data(bool val = false, bool autoprint = false);
+        void save_setting_data(int idx, uint8_t new_setting, SCREEN lcd_screen, bool autoprint = true);
+        void save_setting_data(bool val = false, bool autoprint = true);
 
         // Helper function
         SCREEN getScreenID(int &i);
@@ -333,9 +345,8 @@ class MULTIFUEL_LCD {
         void blink_cursor();
         void backlight_on();
         void backlight_off();
-        void set_backlight_color(int backlight_idx);
         void set_backlight_color(byte r, byte g, byte b);
-        void set_backlight_color(unsigned long color);
+        void print_error(const char * str, uint8_t row = 3, uint8_t col = 0);
 
         
         /**
@@ -359,21 +370,22 @@ class MULTIFUEL_LCD {
         void write_array(const char *str, uint8_t row = 0, uint8_t col = 0);
 
         /**
+         * @brief Write a character array into the lcd
+         * @brief You can't continuously use write, with Arduino mbed for portentaH7, so write array sends each letter one at a time
+         * 
+         * @brief NB : When the array exceeds 20 characters it wraps to the next line
+         * 
+         * @param arr  // array to print
+         * @param row  // row to start printing
+         * @param col  // collumn to start printing
+         */
+        void write_array(uint8_t *arr, uint8_t row = 0, uint8_t col = 0);
+
+        /**
          * @brief Clear lcd and return to 0,0
          * 
          */
-        void clear();
-
-    private:
-        // Collomun of voltage/power data
-        const int V_COLLUMN = 9;
-        const int A_COLLUMN = 15;
-        const int POWER_COLLUMN = 15;
-
-        // LCD Properties
-        const int LCD_LINES = 4;
-        const int LCD_COLLUMNS = 20;
-        size_t lcd_str_width;
+        void clear();     
 };
 
 #endif
