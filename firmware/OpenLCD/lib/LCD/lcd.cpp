@@ -241,7 +241,7 @@ void MULTIFUEL_LCD::sendInputData(input_data data) {
 
 void MULTIFUEL_LCD::sendSettings(settings_data data) {
     // Create command structure
-    Command cmd(COMMANDS::SEND_INPUT_DATA, data.screen_number, data.min_voltage, data.max_voltage, data.max_current);
+    Command cmd(COMMANDS::SEND_SETTINGS, data.screen_number, data.min_voltage, data.max_voltage, data.max_current);
 
     // Send command
     sendCommand(cmd);
@@ -255,9 +255,9 @@ SCREEN MULTIFUEL_LCD::getScreenID(int &i) {
     return static_cast<SCREEN>(displayed_screens[i]);
 }
 
-uint8_t MULTIFUEL_LCD::get_settings(int line) {
+int MULTIFUEL_LCD::get_settings(int line) {
   // Return the corrrect setting given a line
-  uint8_t src_setting = 0;
+  int src_setting = 0;
 
   // get setting from data vector
   if (current_line == 1) {
@@ -272,10 +272,14 @@ uint8_t MULTIFUEL_LCD::get_settings(int line) {
   return src_setting;
 }
 void MULTIFUEL_LCD::update_cursor_position(int change) {
+    // Ensure current line is within boundaries
+    int max_line = 3;
+    if (active_screen == SCREEN::MAIN) max_line = 2; // if on the main settings page there are only 2 settings
+    
     // Erase cursor from every line
-    write_array(cursor_off, 1, 0);
-    write_array(cursor_off, 2, 0);
-    write_array(cursor_off, 3, 0);
+    for (int i = 1; i <= max_line; i++) {
+      write_array(cursor_off, i, 0);
+    }
 
     // Compute new cursor line
     int dir;
@@ -283,10 +287,6 @@ void MULTIFUEL_LCD::update_cursor_position(int change) {
     else dir = 1;
 
     if (change != 0) current_line += dir * (change / change); // makes change +- 1
-
-    // Ensure current line is within boundaries
-    int max_line = 3;
-    if (active_screen == SCREEN::MAIN) max_line = 2; // if on the main settings page there are only 2 settings
 
     // Update current line
     if (current_line < 1) {current_line = max_line;}
@@ -314,15 +314,14 @@ void MULTIFUEL_LCD::save_menu_name(int change) {
     // Format the screen
     char num_txt[3];
     snprintf(num_txt, sizeof(num_txt), "%2d", menu_num-1); // Update the menu number
-    write_array(num_txt, 2, 19);
-    write_array(menu_names[screen_num], 3, 0);
+    write_array(num_txt, 2, 18);
+    snprintf(line_str, lcd_str_width, menu_name_format, menu_names[screen_num]); // Update the menu name
+    write_array(line_str, 3, 0);
 }
 
 void MULTIFUEL_LCD::save_setting_data(int idx, uint8_t new_setting, SCREEN lcd_screen, bool autoprint) {
-    // Get information from screen_number data structure
-    char update_str[5];
-    double disp_setting;
-    disp_setting = PosZero(new_setting, lcd_precision);
+    // Save screen number to source data
+    source_data.screen_number = active_screen;
 
     // Update setting data
     if (current_line == 1) {
@@ -337,8 +336,9 @@ void MULTIFUEL_LCD::save_setting_data(int idx, uint8_t new_setting, SCREEN lcd_s
     sendSettings(source_data);
     
     // Print
-    dtostrf(disp_setting, 4, 1, update_str);
-    if (autoprint) write_array(update_str, current_line, 15);
+    char num_str[3];
+    snprintf(num_str, 3, "%2u", new_setting);
+    if (autoprint) write_array(num_str, current_line, 15);
 }
 
 void MULTIFUEL_LCD::save_setting_data(bool val, bool autoprint) {
@@ -453,6 +453,10 @@ void MULTIFUEL_LCD::refresh(bool FORCE)
         delay(100);
         getConfig();
         prev_mode = mcu_present;
+
+        // Return to main screen
+        active_screen = SCREEN::MAIN;
+        settings_mode = false;
       }
 
       // Update UI data
@@ -522,6 +526,14 @@ void MULTIFUEL_LCD::backlight_on() {
 
 void MULTIFUEL_LCD::backlight_off() {
    set_backlight_color(0,0,0);
+}
+
+void MULTIFUEL_LCD::set_backlight_color(int idx) {
+  // make sure idx is in range
+  backlight_color = idx % NUM_COLORS;
+
+  // Set the backlight color
+  if (en_backlight) backlight_on();
 }
 
 void MULTIFUEL_LCD::set_backlight_color(byte r, byte g, byte b) {

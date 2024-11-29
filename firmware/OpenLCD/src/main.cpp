@@ -78,6 +78,7 @@ multifuel_lcd_config lcd_config {
   slave_i2c_adr
 };
 MULTIFUEL_LCD lcd;
+int MAX_SETTING = 58;
 
 // Define button functions
 void button_tick(void);
@@ -104,72 +105,72 @@ void ui_update(void) {
   
   // Update encoder
   int tmp = encoder.read() / 4; // 1 detent == 4 positions
-  encoder_pos = tmp - encoder_pos;
+  encoder_pos = tmp - last_enc_ticks;
   last_enc_ticks = tmp; // save current encoder position
 
-  // // encoder.update_encoder();
-  // if (lcd.settings_mode) {
-  //   // Check which direction you turned
-  //   // encoder_pos = encoder.change;
+  // encoder.update_encoder();
+  if (lcd.settings_mode) {
+    // Check which direction you turned
+    // encoder_pos = encoder.change;
 
-  //   // Check if encoder ticks has changed
-  //   if (encoder_pos != 0) enc_change = true;
-  //   // if (encoder.change != 0) encoder.has_changed = true;
-  //   else enc_change = false;
+    // Check if encoder ticks has changed
+    if (encoder_pos != 0) enc_change = true;
+    // if (encoder.change != 0) encoder.has_changed = true;
+    else enc_change = false;
 
-  //   if (!lcd.blinking_cursor) 
-  //   {
-  //     if (enc_change) {
-  //       lcd.update_cursor_position(encoder_pos);
-  //     }
-  //   }  else if (lcd.active_screen == SCREEN::MAIN) 
-  //   {
-  //     if (enc_change) {
-  //       if (lcd.current_line == 2) {
-  //         // Update the displayed line
-  //         lcd.save_menu_name(encoder_pos);
-  //       }
-  //     }
-  //   } else if (lcd.active_screen == SCREEN::SUMMARY) 
-  //   {
-  //     if (enc_change) {
-  //       if (lcd.current_line == 1) {
-  //         lcd.en_backlight = !lcd.en_backlight;
-  //         if (lcd.en_backlight) {lcd.backlight_on();}
-  //         else {lcd.backlight_off();}
+    if (!lcd.blinking_cursor) 
+    {
+      if (enc_change) {
+        lcd.update_cursor_position(encoder_pos);
+      }
+    }  else if (lcd.active_screen == SCREEN::MAIN) 
+    {
+      if (enc_change) {
+        if (lcd.current_line == 2) {
+          // Update the displayed line
+          lcd.save_menu_name(encoder_pos);
+        }
+      }
+    } else if (lcd.active_screen == SCREEN::SUMMARY) 
+    {
+      if (enc_change) {
+        if (lcd.current_line == 1) {
+          lcd.en_backlight = !lcd.en_backlight;
+          if (lcd.en_backlight) {lcd.backlight_on();}
+          else {lcd.backlight_off();}
 
-  //         // Save data and print it to LCD
-  //         lcd.save_setting_data(false);
-  //       }
-  //       if (lcd.current_line == 2) {
-  //         int tmp = lcd.backlight_color;
-  //         tmp += encoder_pos;
-  //         if (tmp >= lcd.NUM_COLORS) {tmp = 0;}
-  //         if (tmp < 0) {tmp = lcd.NUM_COLORS-1;}
-  //         lcd.set_backlight_color(tmp);
-  //         lcd.save_setting_data(false);
-  //       }
-  //       if (lcd.current_line == 3) {
-  //         if (lcd.source_data.max_current != 0) {
-  //           lcd.source_data.max_current = 0;
-  //         } else {
-  //           lcd.source_data.max_current = 1;
-  //         }
-  //         lcd.save_setting_data(lcd.source_data.max_current);
-  //       }
-  //     }
-  //   } else if (lcd.active_screen != SCREEN::MAIN) 
-  //   {
-  //     if (enc_change) {
-  //       lcd.getSettings(lcd.active_screen);
-  //       uint8_t tmp = lcd.get_settings(lcd.current_line);
-  //       tmp += encoder_pos;
-  //       if (tmp > 58) {tmp = 0;}
-  //       if (tmp < 0) {tmp = 58;}
-  //       lcd.save_setting_data(lcd.current_line, tmp, lcd.active_screen);
-  //     } 
-  //   }
-  // }
+          // Save data and print it to LCD
+          lcd.save_setting_data(false);
+        }
+        if (lcd.current_line == 2) {
+          int tmp = lcd.backlight_color;
+          tmp += encoder_pos;
+          if (tmp >= lcd.NUM_COLORS) {tmp = 0;}
+          if (tmp < 0) {tmp = lcd.NUM_COLORS-1;}
+          lcd.set_backlight_color(tmp);
+          lcd.save_setting_data(false);
+        }
+        if (lcd.current_line == 3) {
+          if (lcd.source_data.max_current != 0) {
+            lcd.source_data.max_current = 0;
+          } else {
+            lcd.source_data.max_current = 1;
+          }
+          lcd.save_setting_data(lcd.source_data.max_current);
+        }
+      }
+    } else if (lcd.active_screen != SCREEN::MAIN) 
+    {
+      if (enc_change) {
+        lcd.getSettings(lcd.active_screen);
+        int tmp = lcd.get_settings(lcd.current_line);
+        tmp += encoder_pos;
+        while (tmp < 0) tmp = (tmp + 1) + MAX_SETTING;
+        tmp = tmp % (MAX_SETTING + 1); // ensure it within the bound of max_setting
+        lcd.save_setting_data(lcd.current_line, tmp, lcd.active_screen);
+      } 
+    }
+  }
 
   // Refresh screen when changing screens 
   if ((button_pressed || main_btn_pressed) || (menu_btn_pressed && !lcd.settings_mode)) {
@@ -183,7 +184,7 @@ void ui_update(void) {
     // Save screen_idx as active screen
     lcd.active_screen = lcd.getScreenID(screen_idx);
     button_pressed = false;
-
+    lcd.current_line = 1;
     #ifdef LCD_DEBUG
     lcd.write_array("Button pressed", 3, 0);
     #endif
@@ -202,6 +203,7 @@ void ui_update(void) {
     } else if (lcd.active_screen != SCREEN::MAIN) {
       lcd.active_screen = SCREEN::MAIN;
       screen_idx = 0;
+      lcd.current_line = 1;
     }
     main_btn_pressed = false;
   }
@@ -209,7 +211,7 @@ void ui_update(void) {
     if (!lcd.settings_mode) {
       lcd.settings_mode = true;
       lcd.menu_num = 1;
-      lcd.save_menu_name(lcd.menu_num);
+      lcd.save_menu_name(0);
       // lcd.change_screen(SCREEN::MAIN);
       screen_idx = 0;
       lcd.active_screen = SCREEN::MAIN;

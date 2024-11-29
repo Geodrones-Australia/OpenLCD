@@ -276,6 +276,7 @@ class MULTIFUEL_LCD {
         /********************************Character formatting Arrays*****************************/
         int menu_num = 1;
         char line_str[21] = " ";
+        const char *menu_name_format  = " \176%s";
         const char* menu_names[NUM_SCREENS];
         SCREEN displayed_screens[NUM_DISPLAY_SCREENS];
         size_t lcd_str_width;
@@ -336,7 +337,7 @@ class MULTIFUEL_LCD {
         void test_screen(bool DEBUG = false);
 
         // Update setting menu screens
-        uint8_t get_settings(int line);
+        int get_settings(int line);
         void save_menu_name(int change);
         void save_setting_data(int idx, uint8_t new_setting, SCREEN lcd_screen, bool autoprint = true);
         void save_setting_data(bool val = false, bool autoprint = true);
@@ -349,6 +350,7 @@ class MULTIFUEL_LCD {
         void blink_cursor();
         void backlight_on();
         void backlight_off();
+        void set_backlight_color(int idx);
         void set_backlight_color(byte r, byte g, byte b);
         void print_error(const char * str, uint8_t row = 3, uint8_t col = 0);
 
