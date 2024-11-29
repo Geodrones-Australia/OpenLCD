@@ -254,6 +254,10 @@ class MULTIFUEL_LCD {
         bool en_backlight = true;
         int backlight_color = 0;
         int NUM_COLORS = 8;
+        int cur_row = 0;
+        int cur_col = 0;
+        int pos = 0;
+        bool print_block = false; // if I'm still printing my previous screen don't start printing a new one
 
         /*************************************Settings/Input Data********************************/
         settings_data source_data = {
@@ -329,7 +333,7 @@ class MULTIFUEL_LCD {
 
         // Refresh screen at a constant rate
         void refresh(bool FORCE = false);
-        void full_screen_refresh(bool FORCE = false);
+        void test_screen(bool DEBUG = false);
 
         // Update setting menu screens
         uint8_t get_settings(int line);

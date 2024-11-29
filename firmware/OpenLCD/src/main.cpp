@@ -171,10 +171,12 @@ void ui_update(void) {
   //   }
   // }
 
-  // // Refresh screen
-  // if ((button_pressed || main_btn_pressed) || (menu_btn_pressed && !lcd.settings_mode)) {
-  //   lcd_refresh = true;
-  // }
+  // Refresh screen when changing screens 
+  if ((button_pressed || main_btn_pressed) || (menu_btn_pressed && !lcd.settings_mode)) {
+    lcd_refresh = true;
+  } else {
+    lcd_refresh = false;
+  }
 
   // Update screen based on the button press
   if (button_pressed) {
@@ -187,63 +189,59 @@ void ui_update(void) {
     #endif
   }
 
-  // if (main_btn_pressed) {
-  //   // Only go back to main screen if pressing 
-  //   if (lcd.active_screen == SCREEN::MAIN && lcd.settings_mode) {
-  //     if (lcd.current_line == 1) {
-  //       lcd.settings_mode = false;
-  //     }
-  //     if (lcd.current_line == 2) {
-  //       lcd.active_screen = lcd.displayed_screens[lcd.menu_num];
-  //       screen_idx = lcd.menu_num;
-  //     }
-  //   } else if (lcd.active_screen != SCREEN::MAIN) {
-  //     lcd.active_screen = SCREEN::MAIN;
-  //     screen_idx = 0;
-  //   }
-  //   main_btn_pressed = false;
-  // }
-  // if (menu_btn_pressed) {
-  //   if (!lcd.settings_mode) {
-  //     lcd.settings_mode = true;
-  //     lcd.menu_num = 0;
-  //     lcd.save_menu_name(lcd.menu_num);
-  //     // lcd.change_screen(SCREEN::MAIN);
-  //     screen_idx = SCREEN::MAIN;
-  //     lcd.active_screen = SCREEN::MAIN;
+  if (main_btn_pressed) {
+    // Only go back to main screen if pressing 
+    if (lcd.active_screen == SCREEN::MAIN && lcd.settings_mode) {
+      if (lcd.current_line == 1) {
+        lcd.settings_mode = false;
+      }
+      if (lcd.current_line == 2) {
+        lcd.active_screen = lcd.displayed_screens[lcd.menu_num];
+        screen_idx = lcd.menu_num;
+      }
+    } else if (lcd.active_screen != SCREEN::MAIN) {
+      lcd.active_screen = SCREEN::MAIN;
+      screen_idx = 0;
+    }
+    main_btn_pressed = false;
+  }
+  if (menu_btn_pressed) {
+    if (!lcd.settings_mode) {
+      lcd.settings_mode = true;
+      lcd.menu_num = 1;
+      lcd.save_menu_name(lcd.menu_num);
+      // lcd.change_screen(SCREEN::MAIN);
+      screen_idx = 0;
+      lcd.active_screen = SCREEN::MAIN;
 
-  //     // Reset lcd screen when switching screens
-  //   } else {
-  //     if (lcd.blinking_cursor) {
-  //       lcd.update_cursor_position(0);
-  //     }
-  //     lcd.blinking_cursor = !lcd.blinking_cursor;
-  //   }
-  //   menu_btn_pressed = false;
-  // }
+      // Reset lcd screen when switching screens
+    } else {
+      if (lcd.blinking_cursor) {
+        lcd.update_cursor_position(0);
+      }
+      lcd.blinking_cursor = !lcd.blinking_cursor;
+    }
+    menu_btn_pressed = false;
+  }
 
-  // // If the main button is held go to main screen and exit settings mode
-  // if (main_button.button_held && lcd.settings_mode) {
-  //   // Dsable settings mode and blinking cursor
-  //   lcd.settings_mode = false;
-  //   lcd.blinking_cursor = false;
+  // If the main button is held go to main screen and exit settings mode
+  if (main_button.button_held && lcd.settings_mode) {
+    // Dsable settings mode and blinking cursor
+    lcd.settings_mode = false;
+    lcd.blinking_cursor = false;
 
-  //   // Change the active screen back to main
-  //   lcd.active_screen = SCREEN::MAIN;
-  //   screen_idx = 0;
-  // }
+    // Change the active screen back to main
+    lcd.active_screen = SCREEN::MAIN;
+    screen_idx = 0;
+  }
 
-  // // Update ui data
-  // lcd.ui_data.lcd_mode = lcd.settings_mode;
-  // lcd.ui_data.backlight_on = lcd.en_backlight;
-  // lcd.ui_data.backlight_color = lcd.backlight_color;
-
-  // // Send data to MCU
-  // lcd.sendInputData(lcd.ui_data);
+  // Update ui data
+  lcd.ui_data.lcd_mode = lcd.settings_mode;
+  lcd.ui_data.backlight_on = lcd.en_backlight;
+  lcd.ui_data.backlight_color = lcd.backlight_color;
 
   // Refresh lcd
-  // lcd.refresh(lcd_refresh);
-  lcd.refresh(true);
+  lcd.refresh(lcd_refresh);
 }
 
 // Main Code
@@ -275,9 +273,25 @@ void setup()
   delay(100);
   lcd.init(lcd_config);
 
-  // Get Ready for test
-  delay(2000);
-  lcd.clear();
+  // // Get Ready for test
+  // int num_loops = 0;
+  // int test_time = 5000; // test for 5 seconds
+  // lcd.clear();
+  // lcd.write_array("Testing command time");
+  // delay(1000);
+  // unsigned long start = millis();
+  // while((millis() - start) < test_time) {
+  //   // Create command structure
+  //   lcd.refresh();
+  //   num_loops++;
+  // }
+  // int print_time = millis() - start;
+  // lcd.clear();
+
+  // snprintf(lcd.line_str, lcd.lcd_str_width, "Loops: %d", num_loops);
+  // lcd.write_array(lcd.line_str,0,0);
+  // snprintf(lcd.line_str, lcd.lcd_str_width, "Command time: %dms", print_time);
+  // lcd.write_array(lcd.line_str,1,0);
 }
 
 void loop()
@@ -285,36 +299,4 @@ void loop()
   wdt_reset();
   // Poll Inputs
   ui_update();
-
-  // // Find MCU
-  // int nDevices = 0;
-  // char num_str[5];
-  // lcd.clear();
-  // lcd.write_array("I2C Testing",0,0);
-  // lcd.write_array("Current Device: ",1,0);
-  // for (uint8_t address = 0; address < 127; address++) {
-  //   // Set the slave address to the value
-  //   lcd.i2c_address = address;
-
-  //   // Print address
-  //   snprintf(num_str, 5, "%3d", lcd.i2c_address);
-  //   lcd.locate(1, 16);
-  //   lcd._lcd->write(num_str);
-
-  //   lcd.lcd_scan();
-
-  //   if (lcd.mcu_present) {
-  //     snprintf(lcd.line_str, 21, "Device Found at 0x%02x", lcd.i2c_address);
-  //     lcd.write_array(lcd.line_str,2,0);
-  //     nDevices++;
-  //     delay(2000);
-  //   }
-  //   delay(100);
-  // }
-
-  // if (nDevices == 0) {
-  //   lcd.write_array("No devices found",2,0);
-  // }
-
-  // delay(5000);
 }

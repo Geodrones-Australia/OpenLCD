@@ -94,9 +94,6 @@ void MULTIFUEL_LCD::sendCommand(Command cmd) {
   last_cmd.buffer[2] = cmd.buffer[2];
   last_cmd.buffer[3] = cmd.buffer[3];
   last_cmd.buffer[4] = cmd.buffer[4];
-
-  // Give STM32 time to do other things
-  delay(5);
 }
 
 bool MULTIFUEL_LCD::twiReceive(size_t response_size, bool stop_bit)
@@ -230,8 +227,6 @@ void MULTIFUEL_LCD::getScreen(uint8_t num) {
         clearBuffer(LCD_COLLUMNS);
         ++suc;
       }
-      // Wait a bit before requesting next line
-      delay(1);
     }
     i2c_resp_size = suc * LCD_COLLUMNS;
 }
@@ -298,7 +293,7 @@ void MULTIFUEL_LCD::update_cursor_position(int change) {
     if (current_line > max_line) {current_line = 1;}
 
     // Write cursor to line
-    write_array(cursor_off, current_line, 0);
+    write_array(cursor_on, current_line, 0);
 }
 
 void MULTIFUEL_LCD::save_menu_name(int change) {
@@ -402,14 +397,14 @@ void MULTIFUEL_LCD::locate(uint8_t row, uint8_t column) {
     _lcd->setCursor(column, row);
 }
 
-void MULTIFUEL_LCD::full_screen_refresh(bool FORCE)
+void MULTIFUEL_LCD::test_screen(bool DEBUG)
 {
   // Get current screen
   getScreen(active_screen);
   // getSettings(SCREEN::DCDC_DETAILS);
   // getConfig();
 
-  if (FORCE) {
+  if (DEBUG) {
     // Print the screen
     #ifdef LCD_DEBUG
     write_array(DEBUG_LINE,0,0);
@@ -437,16 +432,18 @@ void MULTIFUEL_LCD::full_screen_refresh(bool FORCE)
     write_array(lcd_buff);
     #endif
   }
-
-  // Update cursor
-  if (settings_mode && blinking_cursor) {blink_cursor();}
 }
 
 void MULTIFUEL_LCD::refresh(bool FORCE)
 {
   // Measure refresh rate
   mes_rate = millis() - last_scr_update;
-  if (mes_rate > LCD_UPDATE_RATE)
+
+  // Update cursor
+  if (settings_mode && blinking_cursor) {blink_cursor();}
+
+  // Update rate
+  if ((mes_rate > LCD_UPDATE_RATE) || (FORCE))
   {
       // Scan for the mcu
       lcd_scan();
@@ -458,10 +455,44 @@ void MULTIFUEL_LCD::refresh(bool FORCE)
         prev_mode = mcu_present;
       }
 
-      // Refresh screen
-      full_screen_refresh(FORCE);  
+      // Update UI data
+      sendInputData(ui_data);
+
+      // If i've finished printing the old screen get a new screen, or forced update
+      if ((FORCE) || (!print_block  && !settings_mode)) {
+        // Get new data
+        getScreen(active_screen); 
+
+        // Unblock printing and reset position
+        cur_row = 0;
+        cur_col = 0;
+        pos = 0;
+        print_block = true;
+      }
+
       last_scr_update = millis();
+  } else if (print_block) {
+    // Write next character from lcd
+    locate(cur_row, cur_col);
+    _lcd->write(lcd_buff[pos]);
+
+    // Update position
+    ++pos;
+    if (pos < LCD_SIZE) {
+      // Update row and collumn positions
+      cur_row = pos / LCD_COLLUMNS;
+      cur_col = pos - (cur_row * LCD_COLLUMNS);
+
+      // Ensure the row and collumn are bounded
+      cur_row = cur_row % LCD_LINES;
+      cur_col = cur_col % LCD_COLLUMNS;
+    } else {
+      // We've finished printing the screen waiting until next refresh to print again
+      // In settings mode we only print the screen once (we are updating it in real time)
+      print_block = false;
+    }
   }
+
 }
 
 void MULTIFUEL_LCD::blink_cursor() {
@@ -564,7 +595,13 @@ void MULTIFUEL_LCD::startup() {
     petSafeDelay(100);
 
     // Display current screem
-    full_screen_refresh(true);
+    getScreen(SCREEN::MAIN);
+    print_block = true;
+
+    // wait until screen is fully printed
+    while (print_block) {
+      refresh();
+    }
 
     // // Grab initial setting data
     // for (int i = 0; i < NUM_DISPLAY_SCREENS; ++i) {
