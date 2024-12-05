@@ -334,12 +334,12 @@ void setup()
   // snprintf(lcd.line_str, lcd.lcd_str_width, "Rate: %skb/s", num_str);
   // lcd.write_array(lcd.line_str,3,0);
   // while(1);
-  lcd.clear();
-  lcd.write_array("Button test");
-  left_time = left_button.timestamp();
-  right_time = right_button.timestamp();
-  main_time = main_button.timestamp();
-  menu_time = menu_button.timestamp();
+  // lcd.clear();
+  // lcd.write_array("Button test");
+  // left_time = left_button.timestamp();
+  // right_time = right_button.timestamp();
+  // main_time = main_button.timestamp();
+  // menu_time = menu_button.timestamp();
 }
 
 void loop()
