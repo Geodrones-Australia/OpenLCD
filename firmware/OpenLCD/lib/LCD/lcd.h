@@ -27,6 +27,7 @@ struct multifuel_lcd_config {
     uint8_t i2c_adr;
 };
 
+
 //Hardware pin definitions
 #define LCD_RS A0
 #define LCD_RW A1
@@ -108,7 +109,8 @@ const byte DEFAULT_DISPLAY_SYSTEM_MESSAGES = true; //Enable messages
 Screens: enumerator for screens for each source and LCD specific screens (Order indicates the index of the source data)
 */
 #define NUM_SCREENS 14 // NUmber of screens saved (total)
-#define NUM_DISPLAY_SCREENS 11 // Number of screens displayed
+#define NUM_DISPLAY_SCREENS 9 // Number of screens displayed
+#define NUM_SETTINGS_SCREENS 6 // Number of setting screens
 typedef enum{
     // Sources
     CORELLA_IN_DETAILS, 
@@ -201,13 +203,13 @@ struct settings_data {
  * 
  */
 struct input_data {
-    uint8_t protection_mode;
+    uint8_t contrast;
     uint8_t lcd_mode;
     uint8_t backlight_on;
     uint8_t backlight_color;
-    input_data(): protection_mode(0), lcd_mode(0), backlight_on(0), backlight_color(0) {};
-    input_data(uint8_t num, uint8_t mode, uint8_t en_light, uint8_t color_light) :
-    protection_mode(num), lcd_mode(mode), backlight_on(en_light), backlight_color(color_light){};
+    input_data(): contrast(45), lcd_mode(0), backlight_on(0), backlight_color(0) {};
+    input_data(uint8_t lcd_contrast, uint8_t mode, uint8_t en_light, uint8_t color_light) :
+    contrast(lcd_contrast), lcd_mode(mode), backlight_on(en_light), backlight_color(color_light){};
 };
 
 // Helper functions
@@ -254,6 +256,7 @@ class MULTIFUEL_LCD {
         bool en_backlight = true;
         int backlight_color = 0;
         int NUM_COLORS = 8;
+        uint8_t contrast = 45;
         int cur_row = 0;
         int cur_col = 0;
         int pos = 0;
@@ -267,7 +270,7 @@ class MULTIFUEL_LCD {
             0,
         };
         input_data ui_data = {
-            0,
+            45,
             1,
             0,
             0,
@@ -279,6 +282,7 @@ class MULTIFUEL_LCD {
         const char *menu_name_format  = " \176%s";
         const char* menu_names[NUM_SCREENS];
         SCREEN displayed_screens[NUM_DISPLAY_SCREENS];
+        SCREEN settings_screens[NUM_SETTINGS_SCREENS];
         size_t lcd_str_width;
 
         // Save lcd_colors
@@ -326,7 +330,7 @@ class MULTIFUEL_LCD {
         void clearBuffer(int quantity = 0);
 
         // High level Command functions
-        void getConfig();
+        void getConfig(bool autoset = true);
         void getSettings(uint8_t num);
         void getScreen(uint8_t num);
         void sendInputData(input_data data);
@@ -341,12 +345,14 @@ class MULTIFUEL_LCD {
         void save_menu_name(int change);
         void save_setting_data(int idx, uint8_t new_setting, SCREEN lcd_screen, bool autoprint = true);
         void save_setting_data(bool val = false, bool autoprint = true);
+        void save_setting_data(int new_setting, SCREEN lcd_screen); // save contrast
 
         // Helper function
         SCREEN getScreenID(int &i);
         
         // LCD Configuration Function
         void update_cursor_position(int direction);
+        void changeContrast(uint8_t val);
         void blink_cursor();
         void backlight_on();
         void backlight_off();

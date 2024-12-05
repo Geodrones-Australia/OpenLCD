@@ -32,24 +32,36 @@
 
 // Header libraries
 #include "lcd.h"
-#include "button.h"
+#include "GPIO.h"
+#include "multifuel_button.h"
 #include "Encoder.h" 
 
 // Define Button pins
-#define LEFT_BUTTON 0
-#define RIGHT_BUTTON 10
-#define MAIN_BUTTON 1
-#define MENU_BUTTON 13
-Button left_button;
-Button main_button;
-Button right_button;
-Button menu_button;
+#define LEFT_BUTTON BOARD::D0
+#define RIGHT_BUTTON BOARD::D10
+#define MAIN_BUTTON BOARD::D1
+#define MENU_BUTTON BOARD::D13
+Multifuel_Button<LEFT_BUTTON,50> left_button;
+Multifuel_Button<MAIN_BUTTON,50> main_button;
+Multifuel_Button<RIGHT_BUTTON,50> right_button; // super bouncy for some reason
+Multifuel_Button<MENU_BUTTON,50> menu_button; // rotary button isn't as bouncy
 
 // Button status
 int screen_idx = 0;
 bool button_pressed;
+bool left_btn_pressed;
+bool right_btn_pressed;
 bool main_btn_pressed;
 bool menu_btn_pressed;
+uint32_t left_time;
+uint32_t right_time;
+uint32_t menu_time;
+uint32_t main_time;
+int left_count = 0;
+int right_count = 0;
+int main_count = 0;
+int menu_count = 0;
+
 
 // Define encoder pins
 #define pinA 11
@@ -80,16 +92,54 @@ multifuel_lcd_config lcd_config {
 MULTIFUEL_LCD lcd;
 int MAX_SETTING = 58;
 
-// Define button functions
+// Define functions
 void button_tick(void);
 void ui_update(void);
+int sign(int x); // return sign of x (-1 or 1)
+int wrap(int x, int low_bound, int upper_bound);
+int update_value(int val, int change, int max = 0, int min = 0);
+
+int sign(int x) {
+    return (x > 0) - (x < 0);
+}
+
+int wrap(int x, int low_bound, int upper_bound)
+{
+    int range_size = upper_bound - low_bound + 1;
+
+    if (x < low_bound)
+        x += range_size * ((low_bound - x) / range_size + 1);
+
+    return low_bound + (x - low_bound) % range_size;
+}
+
+
+int update_value(int val, int change, int max, int min) {
+  if (change != 0) {
+    val += sign(change);
+  }
+
+  // ensure its within the bound of max_setting and rollover both directions if it is
+  if ((max - min) > 0) {
+    val = wrap(val, min, max);
+  }
+  return val;
+}
+
 
 void button_tick(void) {
+  // Set flags as false
+  button_pressed = false;
+  left_btn_pressed = false;
+  menu_btn_pressed = false;
+  main_btn_pressed = false;
+  right_btn_pressed = false;
+
   // Check buttons
-  if (right_button.update_btn() && !lcd.blinking_cursor) {screen_idx++; button_pressed = true;}
-  if (left_button.update_btn() && !lcd.blinking_cursor) {screen_idx--; button_pressed = true;}
-  if (main_button.update_btn() && !lcd.blinking_cursor) {main_btn_pressed = true;} 
-  if (menu_button.update_btn()) {menu_btn_pressed = true;}
+  if (right_button.update_btn() && !lcd.blinking_cursor) {screen_idx++; button_pressed = true; right_btn_pressed = true; right_count++;}
+  if (left_button.update_btn() && !lcd.blinking_cursor) {screen_idx--; button_pressed = true; left_btn_pressed = true; left_count++;}
+  if (main_button.update_btn() && !lcd.blinking_cursor) {main_btn_pressed = true; main_count++;} 
+  if (menu_button.update_btn()) {menu_btn_pressed = true; menu_count++;}
 
   // Last run
   #ifdef LCD_DEBUG
@@ -143,20 +193,14 @@ void ui_update(void) {
           lcd.save_setting_data(false);
         }
         if (lcd.current_line == 2) {
-          int tmp = lcd.backlight_color;
-          tmp += encoder_pos;
-          if (tmp >= lcd.NUM_COLORS) {tmp = 0;}
-          if (tmp < 0) {tmp = lcd.NUM_COLORS-1;}
+          int tmp = update_value(lcd.backlight_color, encoder_pos, lcd.NUM_COLORS-1);
           lcd.set_backlight_color(tmp);
           lcd.save_setting_data(false);
         }
         if (lcd.current_line == 3) {
-          if (lcd.source_data.max_current != 0) {
-            lcd.source_data.max_current = 0;
-          } else {
-            lcd.source_data.max_current = 1;
-          }
-          lcd.save_setting_data(lcd.source_data.max_current);
+          int tmp = update_value(lcd.contrast, encoder_pos, 60);
+          lcd.changeContrast(tmp);
+          lcd.save_setting_data(tmp, lcd.active_screen);
         }
       }
     } else if (lcd.active_screen != SCREEN::MAIN) 
@@ -164,9 +208,7 @@ void ui_update(void) {
       if (enc_change) {
         lcd.getSettings(lcd.active_screen);
         int tmp = lcd.get_settings(lcd.current_line);
-        tmp += encoder_pos;
-        while (tmp < 0) tmp = (tmp + 1) + MAX_SETTING;
-        tmp = tmp % (MAX_SETTING + 1); // ensure it within the bound of max_setting
+        tmp = update_value(tmp, encoder_pos, MAX_SETTING);
         lcd.save_setting_data(lcd.current_line, tmp, lcd.active_screen);
       } 
     }
@@ -207,6 +249,7 @@ void ui_update(void) {
     }
     main_btn_pressed = false;
   }
+
   if (menu_btn_pressed) {
     if (!lcd.settings_mode) {
       lcd.settings_mode = true;
@@ -226,21 +269,12 @@ void ui_update(void) {
     menu_btn_pressed = false;
   }
 
-  // If the main button is held go to main screen and exit settings mode
-  if (main_button.button_held && lcd.settings_mode) {
-    // Dsable settings mode and blinking cursor
-    lcd.settings_mode = false;
-    lcd.blinking_cursor = false;
-
-    // Change the active screen back to main
-    lcd.active_screen = SCREEN::MAIN;
-    screen_idx = 0;
-  }
-
   // Update ui data
+  lcd.ui_data.contrast = lcd.contrast;
   lcd.ui_data.lcd_mode = lcd.settings_mode;
   lcd.ui_data.backlight_on = lcd.en_backlight;
   lcd.ui_data.backlight_color = lcd.backlight_color;
+  
 
   // Refresh lcd
   lcd.refresh(lcd_refresh);
@@ -265,10 +299,6 @@ void setup()
   main_btn_pressed = false;
 
   // Initialise Buttons
-  left_button.init(LEFT_BUTTON);
-  right_button.init(RIGHT_BUTTON);
-  main_button.init(MAIN_BUTTON);
-  menu_button.init(MENU_BUTTON);
   interrupts();  // Turn interrupts on, and let's go
 
   // Init LCD
@@ -276,29 +306,44 @@ void setup()
   lcd.init(lcd_config);
 
   // // Get Ready for test
-  // int num_loops = 0;
-  // int test_time = 5000; // test for 5 seconds
+  // int num_loops = 100;
   // lcd.clear();
   // lcd.write_array("Testing command time");
   // delay(1000);
   // unsigned long start = millis();
-  // while((millis() - start) < test_time) {
+  // for (int i = 0; i < num_loops; i++) {
   //   // Create command structure
-  //   lcd.refresh();
-  //   num_loops++;
+  //   lcd.getScreen(SCREEN::CORELLA_IN_DETAILS);
   // }
   // int print_time = millis() - start;
   // lcd.clear();
 
   // snprintf(lcd.line_str, lcd.lcd_str_width, "Loops: %d", num_loops);
   // lcd.write_array(lcd.line_str,0,0);
-  // snprintf(lcd.line_str, lcd.lcd_str_width, "Command time: %dms", print_time);
+  // snprintf(lcd.line_str, lcd.lcd_str_width, "time: %dms", print_time);
   // lcd.write_array(lcd.line_str,1,0);
+  // char num_str[5];
+  // double loop_time = double(print_time) / num_loops;
+  // dtostrf(loop_time, 5, 2, num_str);
+  // snprintf(lcd.line_str, lcd.lcd_str_width, "time/loop: %sms", num_str);
+  // lcd.write_array(lcd.line_str,2,0);
+  // double rate = 800 / loop_time;
+  // // double rate = 72 / loop_time;
+  // // double rate = 20 / loop_time;
+  // dtostrf(rate, 5, 1, num_str);
+  // snprintf(lcd.line_str, lcd.lcd_str_width, "Rate: %skb/s", num_str);
+  // lcd.write_array(lcd.line_str,3,0);
+  // while(1);
+  lcd.clear();
+  lcd.write_array("Button test");
+  left_time = left_button.timestamp();
+  right_time = right_button.timestamp();
+  main_time = main_button.timestamp();
+  menu_time = menu_button.timestamp();
 }
 
 void loop()
 {
-  wdt_reset();
-  // Poll Inputs
+  // // Poll Inputs
   ui_update();
 }

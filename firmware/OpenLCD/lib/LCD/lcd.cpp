@@ -48,11 +48,11 @@ void MULTIFUEL_LCD::init(multifuel_lcd_config config) {
 
     // Setup Menu names
     menu_names[SCREEN::LEAD_DETAILS]        = "Lead Settings     ";
-    menu_names[SCREEN::LIPO_DETAILS]        = "Lipo Settings     ";
+    menu_names[SCREEN::LIPO_DETAILS]        = "Lipo 1 Settings   ";
     menu_names[SCREEN::CORELLA_IN_DETAILS]  = "BATT(INT) Settings"; 
     menu_names[SCREEN::CORELLA_EXT_DETAILS] = "BATT(EXT) Settings";
     menu_names[SCREEN::SOLAR_DETAILS]       = "Solar Settings    ";
-    menu_names[SCREEN::GENERATOR_DETAILS]   = "Generator Settings";
+    menu_names[SCREEN::GENERATOR_DETAILS]   = "Lipo 2 Settings   ";
     menu_names[SCREEN::ACDC_DETAILS]        = "ACDC Settings     "; 
     menu_names[SCREEN::DCDC_DETAILS]        = "DCDC Settings     ";
     menu_names[SCREEN::CHARGER_DETAILS]     = "Charger Settings  ";
@@ -60,7 +60,7 @@ void MULTIFUEL_LCD::init(multifuel_lcd_config config) {
     menu_names[SCREEN::INVERTER_DETAILS]    = "Inverter Settings ";
     menu_names[SCREEN::LEAD_STEPUP_DETAILS] = "Lead Step Settings";
     menu_names[SCREEN::MAIN]                = "Main Settings     "; 
-    menu_names[SCREEN::SUMMARY]             = "Module Settings   ";
+    menu_names[SCREEN::SUMMARY]             = "LCD Settings      ";
 
     // Add screens you are displaying to vector
     displayed_screens[0] = SCREEN::MAIN;
@@ -68,6 +68,14 @@ void MULTIFUEL_LCD::init(multifuel_lcd_config config) {
     for (int i = 0; i < (NUM_DISPLAY_SCREENS-2); i++) {
         displayed_screens[i+2] = static_cast<SCREEN>(i);
     }
+
+    // Save values to setting screens
+    settings_screens[0] = SCREEN::MAIN;
+    settings_screens[1] = SCREEN::SUMMARY;
+    settings_screens[2] = SCREEN::CORELLA_IN_DETAILS;
+    settings_screens[3] = SCREEN::CORELLA_EXT_DETAILS;
+    settings_screens[4] = SCREEN::LIPO_DETAILS;
+    settings_screens[5] = SCREEN::GENERATOR_DETAILS;
 
     // Initialise LCD
     startup();
@@ -100,11 +108,8 @@ bool MULTIFUEL_LCD::twiReceive(size_t response_size, bool stop_bit)
 {
   if (mcu_present) {
     i2c_resp_size = _i2c->requestFrom(i2c_address, uint8_t(response_size), uint8_t(stop_bit));
-    size_t idx = 0;
-    while (_i2c->available()) {
+    for (size_t idx = 0; idx < response_size; idx++) {
         buffer[idx] = _i2c->read();
-        ++idx;
-        if (idx >= response_size) break;
     };
     return true;
   } else {
@@ -125,7 +130,7 @@ void MULTIFUEL_LCD::clearBuffer(int quantity) {
   }
 }
     
-void MULTIFUEL_LCD::getConfig() {
+void MULTIFUEL_LCD::getConfig(bool autoset) {
     // Create command structure
     Command cmd(COMMANDS::GET_CONFIG, active_screen, 0, 0, 0);
 
@@ -135,7 +140,7 @@ void MULTIFUEL_LCD::getConfig() {
     // Twi Receive
     if (twiReceive(4)) {
       // Parse buffer
-      ui_data.protection_mode = buffer[0];
+      ui_data.contrast = buffer[0];
       ui_data.lcd_mode = buffer[1];
       ui_data.backlight_on = buffer[2];
       ui_data.backlight_color = buffer[3];
@@ -150,7 +155,7 @@ void MULTIFUEL_LCD::getConfig() {
       // Clear buffer
       clearBuffer(4);
 
-      // Configure lcd
+      // Save backlight properties
       if (ui_data.backlight_on != 0) {
         en_backlight = true;
       } else {
@@ -161,9 +166,17 @@ void MULTIFUEL_LCD::getConfig() {
       } else {
         backlight_color = ui_data.backlight_color;
       }
-    
-      // Chnage the configuration of the lcd
-      configure();
+
+      // Change contrast
+      contrast = ui_data.contrast;
+
+      // Apply settings to lcd
+      if (autoset) {
+        changeContrast(contrast);
+      
+        // Chnage the configuration of the lcd
+        configure();
+      }
     }
 }
 
@@ -233,7 +246,7 @@ void MULTIFUEL_LCD::getScreen(uint8_t num) {
 
 void MULTIFUEL_LCD::sendInputData(input_data data) {
     // Create command structure
-    Command cmd(COMMANDS::SEND_INPUT_DATA, data.protection_mode, data.lcd_mode, data.backlight_on, data.backlight_color);
+    Command cmd(COMMANDS::SEND_INPUT_DATA, data.contrast, data.lcd_mode, data.backlight_on, data.backlight_color);
 
     // Send command
     sendCommand(cmd);
@@ -249,10 +262,19 @@ void MULTIFUEL_LCD::sendSettings(settings_data data) {
 
 SCREEN MULTIFUEL_LCD::getScreenID(int &i) {
     // Ensure integer is within the bounds of the screen ids
-    if (i >= NUM_DISPLAY_SCREENS) {i = 0;};
-    if (i < 0) {i = NUM_DISPLAY_SCREENS - 1;};
-    // return screen from integer
-    return static_cast<SCREEN>(displayed_screens[i]);
+    if (!settings_mode) {
+      if (i >= NUM_DISPLAY_SCREENS) {i = 0;};
+      if (i < 0) {i = NUM_DISPLAY_SCREENS - 1;};
+
+      // return screen from integer
+      return static_cast<SCREEN>(displayed_screens[i]);
+    } else {
+      if (i >= NUM_SETTINGS_SCREENS) {i = 1;};
+      if (i < 1) {i = NUM_SETTINGS_SCREENS - 1;};
+
+      // return screen from integer
+      return static_cast<SCREEN>(settings_screens[i]);
+    }
 }
 
 int MULTIFUEL_LCD::get_settings(int line) {
@@ -304,12 +326,9 @@ void MULTIFUEL_LCD::save_menu_name(int change) {
 
     if (change != 0) menu_num += dir * (change / change); // make usre change is always +- 1
 
-    // Make sure the menu number is within boundaries
-    if (menu_num >= NUM_DISPLAY_SCREENS) {menu_num = 1;}
-    if (menu_num < 1) {menu_num = NUM_DISPLAY_SCREENS-1;}
-
     // Get the screen number
-    SCREEN screen_num = displayed_screens[menu_num];
+    SCREEN screen_num = getScreenID(menu_num);
+    if (menu_num < 1) menu_num = 1;
 
     // Format the screen
     char num_txt[3];
@@ -341,6 +360,19 @@ void MULTIFUEL_LCD::save_setting_data(int idx, uint8_t new_setting, SCREEN lcd_s
     if (autoprint) write_array(num_str, current_line, 15);
 }
 
+void MULTIFUEL_LCD::save_setting_data(int new_setting, SCREEN lcd_screen) {
+    // Get information from screen_number data structure
+    char update_str[4];
+    // Save screen data
+    dtostrf(new_setting, 3, 0, update_str);
+
+    // Send data to mcu to save
+    ui_data.contrast = new_setting;
+    
+    // Update array
+    write_array(update_str, current_line, 17);
+}
+
 void MULTIFUEL_LCD::save_setting_data(bool val, bool autoprint) {
     // Update the main module screen
     if (current_line == 1) {
@@ -357,16 +389,6 @@ void MULTIFUEL_LCD::save_setting_data(bool val, bool autoprint) {
         // Save screen data
         write_array(lcd_color_str[backlight_color], current_line,14);
         ui_data.backlight_color = backlight_color;
-    } else if (current_line == 3) {
-        if (val) {
-            // Save screen data
-            write_array(on_str, current_line,17);
-        }
-        else {
-            // Save screen data
-            write_array(off_str, current_line,17);
-        }
-        ui_data.protection_mode = val;
     }
 }
 
@@ -515,6 +537,20 @@ void MULTIFUEL_LCD::blink_cursor() {
     // _lcd.blink();
 }
 
+//Change the digital contrast
+//Press a or z to adjust, x to exit
+void MULTIFUEL_LCD::changeContrast(uint8_t val)
+{
+  // Save contrast to lcd class
+  contrast = val;
+
+  // Update eeprom contrast setting
+  EEPROM.update(LOCATION_CONTRAST, contrast); //Store this new contrast
+
+  //Go to this new contrast
+  analogWrite(LCD_CONTRAST, contrast);
+}
+
 void MULTIFUEL_LCD::backlight_on() {
     unsigned long rgb = lcd_colors[backlight_color];
     // convert from hex triplet to byte values
@@ -565,7 +601,9 @@ void MULTIFUEL_LCD::startup() {
 
     // Setup I2C
     _i2c->begin();
-    _i2c->setClock(400000);
+
+    // Set i2c clock speed
+    _i2c->setClock(400000UL);
     _i2c->setWireTimeout(5000);
 
     // Print startup message
