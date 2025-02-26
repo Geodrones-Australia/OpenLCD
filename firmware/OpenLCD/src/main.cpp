@@ -227,6 +227,7 @@ void ui_update(void) {
     lcd.active_screen = lcd.getScreenID(screen_idx);
     button_pressed = false;
     lcd.current_line = 1;
+    lcd.menu_num = 1;
     #ifdef LCD_DEBUG
     lcd.write_array("Button pressed", 3, 0);
     #endif
@@ -237,10 +238,13 @@ void ui_update(void) {
     if (lcd.active_screen == SCREEN::MAIN && lcd.settings_mode) {
       if (lcd.current_line == 1) {
         lcd.settings_mode = false;
+        lcd.menu_num = 1;
       }
       if (lcd.current_line == 2) {
-        lcd.active_screen = lcd.displayed_screens[lcd.menu_num];
+        lcd.active_screen = lcd.settings_screens[lcd.menu_num];
+        lcd.current_line = 1;
         screen_idx = lcd.menu_num;
+        lcd.menu_num = 1;
       }
     } else if (lcd.active_screen != SCREEN::MAIN) {
       lcd.active_screen = SCREEN::MAIN;

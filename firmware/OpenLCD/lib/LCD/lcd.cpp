@@ -46,6 +46,21 @@ void MULTIFUEL_LCD::init(multifuel_lcd_config config) {
     // Add data to status vector
     lcd_present = true;
 
+    // Add screens you are displaying to vector
+    displayed_screens[0] = SCREEN::MAIN;
+    displayed_screens[1] = SCREEN::SUMMARY;
+    for (int i = 0; i < (NUM_DISPLAY_SCREENS-2); i++) {
+        displayed_screens[i+2] = static_cast<SCREEN>(i);
+    }
+
+    // Save values to setting screens
+    settings_screens[0] = SCREEN::MAIN;
+    settings_screens[1] = SCREEN::SUMMARY;
+    settings_screens[2] = SCREEN::CORELLA_IN_DETAILS;
+    settings_screens[3] = SCREEN::CORELLA_EXT_DETAILS;
+    settings_screens[4] = SCREEN::LIPO_DETAILS;
+    settings_screens[5] = SCREEN::GENERATOR_DETAILS;
+
     // Setup Menu names
     menu_names[SCREEN::LEAD_DETAILS]        = "Lead Settings     ";
     menu_names[SCREEN::LIPO_DETAILS]        = "Lipo 1 Settings   ";
@@ -61,21 +76,6 @@ void MULTIFUEL_LCD::init(multifuel_lcd_config config) {
     menu_names[SCREEN::LEAD_STEPUP_DETAILS] = "Lead Step Settings";
     menu_names[SCREEN::MAIN]                = "Main Settings     "; 
     menu_names[SCREEN::SUMMARY]             = "LCD Settings      ";
-
-    // Add screens you are displaying to vector
-    displayed_screens[0] = SCREEN::MAIN;
-    displayed_screens[1] = SCREEN::SUMMARY;
-    for (int i = 0; i < (NUM_DISPLAY_SCREENS-2); i++) {
-        displayed_screens[i+2] = static_cast<SCREEN>(i);
-    }
-
-    // Save values to setting screens
-    settings_screens[0] = SCREEN::MAIN;
-    settings_screens[1] = SCREEN::SUMMARY;
-    settings_screens[2] = SCREEN::CORELLA_IN_DETAILS;
-    settings_screens[3] = SCREEN::CORELLA_EXT_DETAILS;
-    settings_screens[4] = SCREEN::LIPO_DETAILS;
-    settings_screens[5] = SCREEN::GENERATOR_DETAILS;
 
     // Initialise LCD
     startup();
@@ -324,7 +324,7 @@ void MULTIFUEL_LCD::save_menu_name(int change) {
     if (change < 0) dir = -1; // keep the change negative
     else dir = 1;
 
-    if (change != 0) menu_num += dir * (change / change); // make usre change is always +- 1
+    if (change != 0) menu_num += dir; // make usre change is always +- 1
 
     // Get the screen number
     SCREEN screen_num = getScreenID(menu_num);
